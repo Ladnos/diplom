@@ -465,6 +465,24 @@ export class StaffService {
         data: { managerId: employee.managerId },
       });
 
+      // Будущие смены снимаются здесь же, а не событием (§10.6).
+      // График принадлежит этому же сервису, поэтому согласованность
+      // обеспечивается транзакцией, а не сагой с повторами и DLQ.
+      // Прошлые смены остаются: по ним считается табель за отработанное.
+      const cancelledShifts = await tx.shift.deleteMany({
+        where: { employeeId: input.employeeId, date: { gt: firedAt } },
+      });
+
+      // Незавершённые отсутствия обрезаются днём увольнения: отпуск,
+      // выходящий за пределы работы в компании, — противоречивые данные.
+      await tx.absence.updateMany({
+        where: { employeeId: input.employeeId, dateTo: { gt: firedAt } },
+        data: { dateTo: firedAt },
+      });
+      await tx.absence.deleteMany({
+        where: { employeeId: input.employeeId, dateFrom: { gt: firedAt } },
+      });
+
       const envelope = this.publisher.wrap<EmployeeDeactivated>(
         HrEvents.EMPLOYEE_DEACTIVATED,
         {
@@ -477,7 +495,11 @@ export class StaffService {
       );
       await tx.outbox.create({ data: outboxRow(envelope) });
 
-      this.logger.log({ message: 'сотрудник уволен', employeeId: updated.id });
+      this.logger.log({
+        message: 'сотрудник уволен',
+        employeeId: updated.id,
+        cancelledShifts: cancelledShifts.count,
+      });
       return updated;
     });
   }

@@ -172,6 +172,90 @@ service ScheduleService {
   rpc AssignShifts(AssignShiftsRequest) returns (ShiftList);
   rpc ApplyTemplate(ApplyTemplateRequest) returns (ShiftList);
   rpc RegisterAbsence(RegisterAbsenceCmd) returns (Absence);
+  rpc CancelShift(CancelShiftCmd) returns (common.Empty);
+  // Шаблоны графиков
+  rpc ListTemplates(common.Empty) returns (TemplateList);
+  rpc CreateTemplate(CreateTemplateCmd) returns (Template);
+  // Производственный календарь
+  rpc GetCalendar(CalendarRequest) returns (CalendarDayList);
+  rpc SetCalendarDay(SetCalendarDayCmd) returns (CalendarDay);
+  rpc SeedCalendarYear(SeedYearCmd) returns (common.Counter);
+}
+
+enum TemplateKind {
+  TEMPLATE_KIND_UNSPECIFIED = 0;
+  // Фиксированные дни недели: 5/2, 6/1. Праздники — выходные.
+  FIXED_WEEK = 1;
+  // Цикл смен: 2/2, сутки через трое. Работает и в праздники.
+  SHIFT_CYCLE = 2;
+}
+
+message Template {
+  string template_id = 1;
+  string name = 2;
+  TemplateKind kind = 3;
+  // FIXED_WEEK: рабочие дни недели, 1 = пн … 7 = вс
+  repeated int32 weekdays = 4;
+  // SHIFT_CYCLE: длина цикла и номера рабочих дней внутри него
+  int32 cycle_length = 5;
+  repeated int32 cycle_work_days = 6;
+  string cycle_anchor = 7;
+  string start_time = 8;
+  string end_time = 9;
+  int32 break_minutes = 10;
+  bool active = 11;
+}
+
+message TemplateList {
+  repeated Template templates = 1;
+}
+
+message CreateTemplateCmd {
+  string name = 1;
+  TemplateKind kind = 2;
+  repeated int32 weekdays = 3;
+  int32 cycle_length = 4;
+  repeated int32 cycle_work_days = 5;
+  string cycle_anchor = 6;
+  string start_time = 7;
+  string end_time = 8;
+  int32 break_minutes = 9;
+}
+
+message CancelShiftCmd {
+  string shift_id = 1;
+  string reason = 2;
+}
+
+enum CalendarDayKind {
+  CALENDAR_DAY_KIND_UNSPECIFIED = 0;
+  HOLIDAY = 1;    // нерабочий праздничный
+  SHORTENED = 2;  // предпраздничный, короче на час (ст. 95 ТК РФ)
+  WORKDAY = 3;    // перенесённый рабочий день
+}
+
+message CalendarDay {
+  string date = 1;
+  CalendarDayKind kind = 2;
+  string note = 3;
+}
+
+message CalendarDayList {
+  repeated CalendarDay days = 1;
+}
+
+message CalendarRequest {
+  common.DatePeriod period = 1;
+}
+
+message SetCalendarDayCmd {
+  string date = 1;
+  CalendarDayKind kind = 2;
+  string note = 3;
+}
+
+message SeedYearCmd {
+  int32 year = 1;
 }
 
 message Shift {
@@ -337,6 +421,15 @@ message TimesheetPeriod {
   bool closed = 4;
   string closed_by = 5;
   int64 closed_at = 6;
+  int32 total_minutes = 7;
+  // Сотрудники, чей табель посчитать не удалось. Их время НЕ вошло
+  // в итог: подставить ноль значило бы занизить отчётность.
+  repeated SkippedEmployee skipped = 8;
+}
+
+message SkippedEmployee {
+  string employee_id = 1;
+  string reason = 2;
 }
 
 message ClosePeriodCmd {

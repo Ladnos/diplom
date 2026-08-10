@@ -37,6 +37,13 @@ export const HrEvents = {
   SHIFT_ASSIGNED: 'hr.shift.assigned',
   SHIFT_CHANGED: 'hr.shift.changed',
   SHIFT_CANCELLED: 'hr.shift.cancelled',
+  /**
+   * Массовое назначение графика по шаблону — ОДНО событие на сотрудника,
+   * а не по одному на смену. Применение шаблона на месяц для отдела из
+   * пятидесяти человек породило бы больше тысячи сообщений, и получатель
+   * прислал бы сотруднику двадцать два push-уведомления вместо одного.
+   */
+  SCHEDULE_APPLIED: 'hr.schedule.applied',
   ABSENCE_REGISTERED: 'hr.absence.registered',
   ABSENCE_REGISTRATION_FAILED: 'hr.absence.registration_failed',
   // timesheet

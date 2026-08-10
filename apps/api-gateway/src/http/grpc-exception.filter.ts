@@ -68,9 +68,16 @@ export class GrpcExceptionFilter implements ExceptionFilter {
       });
     }
 
+    // Скрывается только 500: там в detail может оказаться текст ошибки БД
+    // с именами таблиц. 501 (не реализовано), 503 и 504 — осознанные
+    // ответы, и их текст объясняет клиенту, что происходит. Подмена его
+    // на «внутреннюю ошибку» превращает понятный отказ в загадку —
+    // именно на этом был потерян час при отладке закрытия периода.
+    const hideDetail = status === 500;
+
     response.status(status).json({
       statusCode: status,
-      message: status >= 500 ? 'внутренняя ошибка сервиса' : message,
+      message: hideDetail ? 'внутренняя ошибка сервиса' : message,
       correlationId,
     });
   }

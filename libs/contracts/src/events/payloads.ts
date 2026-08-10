@@ -156,6 +156,16 @@ export interface ShiftCancelled {
   reason: string;
 }
 
+/** Итог массового применения шаблона графика к одному сотруднику. */
+export interface ScheduleApplied {
+  employeeId: string;
+  templateId: string;
+  templateName: string;
+  period: DatePeriod;
+  shiftsCreated: number;
+  normMinutes: number;
+}
+
 /**
  * Подтверждающее событие саги согласования (§10.3): approval-service
  * подписан на него и по requestId переводит заявку в APPLIED.
@@ -461,6 +471,7 @@ export interface EventPayloadMap {
   [HrEvents.SHIFT_ASSIGNED]: ShiftAssigned;
   [HrEvents.SHIFT_CHANGED]: ShiftChanged;
   [HrEvents.SHIFT_CANCELLED]: ShiftCancelled;
+  [HrEvents.SCHEDULE_APPLIED]: ScheduleApplied;
   [HrEvents.ABSENCE_REGISTERED]: AbsenceRegistered;
   [HrEvents.ABSENCE_REGISTRATION_FAILED]: AbsenceRegistrationFailed;
   [HrEvents.OVERTIME_REGISTERED]: OvertimeRegistered;

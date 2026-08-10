@@ -7,6 +7,7 @@ import { SERVICES } from '@crm/contracts';
 import { AuthClient } from './clients/auth.client';
 import { AdminClient } from './clients/admin.client';
 import { HrClient } from './clients/hr.client';
+import { ScheduleClient } from './clients/schedule.client';
 import { RedisService } from './cache/redis.service';
 import { JwtAuthGuard } from './auth/auth.guard';
 import { PermissionGuard } from './auth/permission.guard';
@@ -14,6 +15,8 @@ import { GrpcExceptionFilter } from './http/grpc-exception.filter';
 import { AuthController } from './http/auth.controller';
 import { EmployeesController } from './http/employees.controller';
 import { AdminController } from './http/admin.controller';
+import { ScheduleController } from './http/schedule.controller';
+import { TimesheetController } from './http/timesheet.controller';
 
 /**
  * Корневой модуль api-gateway.
@@ -42,11 +45,18 @@ import { AdminController } from './http/admin.controller';
       SERVICES.ANALYTICS,
     ]),
   ],
-  controllers: [AuthController, EmployeesController, AdminController],
+  controllers: [
+    AuthController,
+    EmployeesController,
+    AdminController,
+    ScheduleController,
+    TimesheetController,
+  ],
   providers: [
     AuthClient,
     AdminClient,
     HrClient,
+    ScheduleClient,
     RedisService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionGuard },

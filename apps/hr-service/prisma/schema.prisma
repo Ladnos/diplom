@@ -106,7 +106,10 @@ model Employee {
   hiredAt      DateTime? @map("hired_at") @db.Date
   firedAt      DateTime? @map("fired_at") @db.Date
 
-  contracts EmploymentContract[]
+  contracts   EmploymentContract[]
+  shifts      Shift[]
+  absences    Absence[]
+  adjustments TimesheetAdjustment[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -144,6 +147,194 @@ model EmploymentContract {
 
   @@index([employeeId, validFrom])
   @@map("employment_contracts")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Модуль schedule: графики, смены, отсутствия
+//
+//  Границы модулей внутри hr-service (ADR-1) проходят и здесь: staff не
+//  обращается к этим таблицам напрямую, только через доменные сервисы.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum ScheduleTemplateKind {
+  /// Фиксированные дни недели: 5/2, 6/1. Праздники — выходные.
+  FIXED_WEEK
+  /// Цикл смен: 2/2, 1/3. Работает и в праздники.
+  SHIFT_CYCLE
+}
+
+model ScheduleTemplate {
+  id   String               @id @default(uuid()) @db.Uuid
+  name String
+  kind ScheduleTemplateKind
+
+  /// FIXED_WEEK: рабочие дни недели, 1 = понедельник … 7 = воскресенье
+  weekdays Int[] @default([])
+
+  /// SHIFT_CYCLE: длина цикла в днях и номера рабочих дней внутри цикла.
+  /// Для 2/2 это cycleLength = 4, cycleWorkDays = [1, 2].
+  cycleLength   Int?  @map("cycle_length")
+  cycleWorkDays Int[] @default([]) @map("cycle_work_days")
+  /// Дата, от которой отсчитывается цикл
+  cycleAnchor   DateTime? @map("cycle_anchor") @db.Date
+
+  startTime    String  @map("start_time") // HH:MM
+  endTime      String  @map("end_time")   // HH:MM
+  breakMinutes Int     @default(60) @map("break_minutes")
+  active       Boolean @default(true)
+
+  shifts    Shift[]
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("schedule_templates")
+}
+
+model Shift {
+  id String @id @default(uuid()) @db.Uuid
+
+  employeeId String   @map("employee_id") @db.Uuid
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  date         DateTime @db.Date
+  startsAt     String   @map("starts_at") // HH:MM
+  endsAt       String   @map("ends_at")
+  breakMinutes Int      @default(60) @map("break_minutes")
+
+  templateId String?           @map("template_id") @db.Uuid
+  template   ScheduleTemplate? @relation(fields: [templateId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// Одна смена на сотрудника в день: две смены подряд — это переработка,
+  /// оформляемая отдельно, а не вторая запись графика.
+  @@unique([employeeId, date])
+  @@index([date])
+  @@map("shifts")
+}
+
+enum AbsenceType {
+  VACATION
+  SICK_LEAVE
+  TIME_OFF
+  BUSINESS_TRIP
+  UNPAID
+}
+
+model Absence {
+  id String @id @default(uuid()) @db.Uuid
+
+  employeeId String   @map("employee_id") @db.Uuid
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  type     AbsenceType
+  dateFrom DateTime    @map("date_from") @db.Date
+  dateTo   DateTime    @map("date_to") @db.Date
+
+  /// Заявка из approval-service, породившая отсутствие. Пусто, если
+  /// оформлено кадровиком напрямую (приказом), минуя согласование.
+  requestId String? @unique @map("request_id") @db.Uuid
+  comment   String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([employeeId, dateFrom, dateTo])
+  @@map("absences")
+}
+
+enum CalendarDayKind {
+  /// Нерабочий праздничный день
+  HOLIDAY
+  /// Предпраздничный: рабочий день сокращается на час (ст. 95 ТК РФ)
+  SHORTENED
+  /// Перенесённый рабочий день — суббота или воскресенье стали рабочими
+  WORKDAY
+}
+
+/// Производственный календарь.
+///
+/// Хранятся только ИСКЛЮЧЕНИЯ: обычные будни и выходные выводятся из дня
+/// недели. Полный календарь на год — это ~250 строк ни о чём, тогда как
+/// исключений в году около двадцати.
+model CalendarDay {
+  date DateTime        @id @db.Date
+  kind CalendarDayKind
+  note String?
+
+  @@map("calendar_days")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Модуль timesheet: табель
+//
+//  Записи табеля НЕ хранятся — они вычисляются (ADR-2):
+//      отработано = норма по графику − отсутствия + переработки
+//  Хранятся только слагаемые, которых нет в графике и отсутствиях:
+//  согласованные переработки и ручные корректировки.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum AdjustmentKind {
+  /// Добавляется к норме дня
+  OVERTIME
+  /// Задаёт итог за день целиком, перекрывая расчёт
+  CORRECTION
+}
+
+model TimesheetAdjustment {
+  id String @id @default(uuid()) @db.Uuid
+
+  employeeId String   @map("employee_id") @db.Uuid
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  date    DateTime       @db.Date
+  kind    AdjustmentKind
+  minutes Int
+
+  /// Согласованная заявка — штатный источник переработки (ADR-2).
+  /// Пусто, если оформлено кадровиком приказом.
+  requestId String? @unique @map("request_id") @db.Uuid
+  reason    String?
+  createdBy String? @map("created_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([employeeId, date])
+  @@map("timesheet_adjustments")
+}
+
+/// Закрытый период табеля.
+///
+/// После закрытия расчёт за период фиксируется: правки требуют повторного
+/// открытия, что оставляет след. Без этого задним числом меняется уже
+/// сданная в бухгалтерию отчётность.
+model TimesheetPeriod {
+  id String @id @default(uuid()) @db.Uuid
+
+  departmentId String? @map("department_id") @db.Uuid
+
+  /// Ключ области: идентификатор отдела либо литерал 'ALL'.
+  ///
+  /// Нужен вместо nullable departmentId в уникальном индексе: PostgreSQL
+  /// считает NULL не равным другому NULL, поэтому ограничение по
+  /// (department_id, period_from, period_to) НЕ помешало бы закрыть один
+  /// и тот же общесистемный период дважды.
+  scopeKey String @map("scope_key")
+
+  periodFrom DateTime @map("period_from") @db.Date
+  periodTo   DateTime @map("period_to") @db.Date
+
+  closed   Boolean   @default(false)
+  closedBy String?   @map("closed_by") @db.Uuid
+  closedAt DateTime? @map("closed_at")
+
+  /// Итог на момент закрытия — снимок, а не пересчёт: график задним
+  /// числом мог измениться, а сданный табель меняться не должен.
+  totalMinutes Int @default(0) @map("total_minutes")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([scopeKey, periodFrom, periodTo])
+  @@index([periodFrom, periodTo])
+  @@map("timesheet_periods")
 }
 
 // ─────────────────────────────────────────────────────────────────────────

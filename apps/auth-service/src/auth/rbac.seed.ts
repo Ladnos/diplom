@@ -40,6 +40,9 @@ const ROLES: { code: string; name: string; grants: Grant[] }[] = [
       { resource: 'channel', action: 'write', scope: 'DEPARTMENT' },
       { resource: 'file', action: 'read', scope: 'SELF' },
       { resource: 'file', action: 'write', scope: 'SELF' },
+      // Производственный календарь виден всем: по нему сотрудник
+      // понимает, какие дни рабочие и почему пятница короче.
+      { resource: 'calendar', action: 'read', scope: 'GLOBAL' },
     ],
   },
   {
@@ -73,6 +76,9 @@ const ROLES: { code: string; name: string; grants: Grant[] }[] = [
       { resource: 'request', action: 'approve', scope: 'GLOBAL' },
       { resource: 'request', action: 'read', scope: 'GLOBAL' },
       { resource: 'report', action: 'read', scope: 'GLOBAL' },
+      // Правка производственного календаря: переносы выходных
+      // устанавливаются постановлением и вводятся кадровой службой.
+      { resource: 'calendar', action: 'write', scope: 'GLOBAL' },
     ],
   },
   {
