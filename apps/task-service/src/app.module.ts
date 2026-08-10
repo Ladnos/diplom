@@ -1,23 +1,25 @@
 import { Module } from '@nestjs/common';
 import { HealthModule } from '@crm/common';
 import { MessagingModule } from '@crm/messaging';
-import { GrpcClientsModule } from '@crm/grpc-clients';
-import { SERVICES } from '@crm/contracts';
 import { PrismaModule } from './prisma/prisma.module';
+import { BoardModule } from './board/board.module';
 
 /**
  * Корневой модуль task-service.
  *
- * Пока подключена только инфраструктура: health, обмен сообщениями,
- * доступ к БД и gRPC-клиенты к сервисам, которые нужны по §6.3.
- * Доменные модули добавляются сюда по мере реализации.
+ * Kanban-доски с WIP-лимитами, дробными позициями карточек и
+ * оптимистической блокировкой при перетаскивании.
+ *
+ * Исходящих gRPC-клиентов нет: всё, что нужно от кадрового сервиса,
+ * приходит событиями в локальную проекцию доступности. Отрисовка доски
+ * не зависит от доступности других сервисов.
  */
 @Module({
   imports: [
     HealthModule,
     MessagingModule.forRoot({ outbox: true }),
     PrismaModule,
-    GrpcClientsModule.register([SERVICES.HR, SERVICES.FILE]),
+    BoardModule,
   ],
 })
 export class AppModule {}

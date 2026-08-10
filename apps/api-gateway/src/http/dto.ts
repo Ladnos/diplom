@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  IsBoolean,
   ArrayMinSize,
   IsArray,
   IsEmail,
@@ -399,4 +400,198 @@ export class PageQuery {
   @IsInt()
   @Min(0)
   offset?: number;
+}
+
+// ── Kanban ──────────────────────────────────────────────────────────────
+
+export class CreateBoardDto {
+  @IsString()
+  @Length(2, 120)
+  name!: string;
+
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsUUID('4', { each: true })
+  memberEmployeeIds?: string[];
+}
+
+export class AddMembersDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsUUID('4', { each: true })
+  employeeIds!: string[];
+
+  @IsOptional()
+  @IsIn(['OWNER', 'MEMBER', 'VIEWER'])
+  role?: 'OWNER' | 'MEMBER' | 'VIEWER';
+}
+
+export class CreateColumnDto {
+  @IsString()
+  @Length(1, 60)
+  name!: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  wipLimit?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isDoneColumn?: boolean;
+
+  @IsOptional()
+  @IsUUID()
+  afterColumnId?: string;
+}
+
+export class UpdateColumnDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 60)
+  name?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  wipLimit?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isDoneColumn?: boolean;
+}
+
+export class ReorderColumnsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsUUID('4', { each: true })
+  orderedColumnIds!: string[];
+}
+
+export class CreateCardDto {
+  @IsUUID()
+  columnId!: string;
+
+  @IsString()
+  @Length(1, 300)
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 10000)
+  description?: string;
+
+  @IsOptional()
+  @IsUUID()
+  assigneeEmployeeId?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'dueDate: ожидается дата YYYY-MM-DD' })
+  dueDate?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100000)
+  estimateMinutes?: number;
+}
+
+export class UpdateCardDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 300)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 10000)
+  description?: string;
+
+  @IsOptional()
+  @Matches(/^(\d{4}-\d{2}-\d{2})?$/, { message: 'dueDate: дата YYYY-MM-DD или пустая строка' })
+  dueDate?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100000)
+  estimateMinutes?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  labelIds?: string[];
+}
+
+export class MoveCardDto {
+  @IsUUID()
+  toColumnId!: string;
+
+  @IsInt()
+  @Min(0)
+  targetIndex!: number;
+
+  /**
+   * Версия карточки, которую видел клиент. Нужна, чтобы двое,
+   * перетащившие карточку одновременно, не затирали друг друга молча.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  expectedVersion?: number;
+}
+
+export class AssignCardDto {
+  /** null или отсутствие поля — снять исполнителя. */
+  @IsOptional()
+  @IsUUID()
+  assigneeEmployeeId?: string;
+}
+
+export class AddCommentDto {
+  @IsString()
+  @Length(1, 5000)
+  body!: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  mentions?: string[];
+}
+
+export class CreateLabelDto {
+  @IsString()
+  @Length(1, 40)
+  name!: string;
+
+  @IsOptional()
+  @Matches(/^#[0-9a-fA-F]{6}$/, { message: 'color: ожидается HEX-цвет вида #6b7280' })
+  color?: string;
+}
+
+export class AssigneeCardsQuery {
+  @IsOptional()
+  @IsUUID()
+  employeeId?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  onlyOpen?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  limit?: number;
 }

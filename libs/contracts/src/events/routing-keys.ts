@@ -63,6 +63,8 @@ export const ApprovalEvents = {
 } as const;
 
 export const TaskEvents = {
+  BOARD_CREATED: 'task.board.created',
+  BOARD_MEMBER_ADDED: 'task.board.member_added',
   CARD_CREATED: 'task.card.created',
   CARD_MOVED: 'task.card.moved',
   CARD_ASSIGNED: 'task.card.assigned',

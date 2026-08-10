@@ -273,6 +273,19 @@ export interface DelegationSet {
 
 // ── task ────────────────────────────────────────────────────────────────────
 
+export interface BoardCreated {
+  boardId: string;
+  name: string;
+  departmentId?: string;
+  createdByEmployeeId: string;
+}
+
+export interface BoardMemberAdded {
+  boardId: string;
+  employeeId: string;
+  role: string;
+}
+
 export interface CardCreated {
   cardId: string;
   boardId: string;
@@ -486,6 +499,8 @@ export interface EventPayloadMap {
   [ApprovalEvents.REQUEST_ESCALATED]: RequestEscalated;
   [ApprovalEvents.DELEGATION_SET]: DelegationSet;
 
+  [TaskEvents.BOARD_CREATED]: BoardCreated;
+  [TaskEvents.BOARD_MEMBER_ADDED]: BoardMemberAdded;
   [TaskEvents.CARD_CREATED]: CardCreated;
   [TaskEvents.CARD_MOVED]: CardMoved;
   [TaskEvents.CARD_ASSIGNED]: CardAssigned;
