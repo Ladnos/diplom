@@ -66,7 +66,16 @@ case "$CMD" in
   generate)
     for s in "${SERVICES[@]}"; do run_for_service "$s" generate; done ;;
   push)
-    for s in "${SERVICES[@]}"; do run_for_service "$s" db push --skip-generate; done ;;
+    # --accept-data-loss обязателен: без него db push в неинтерактивном
+    # режиме прерывается, как только изменение схемы МОЖЕТ затронуть
+    # данные (например, добавление NOT NULL-колонки). Команда предназначена
+    # только для разработки — в продакшене применяются миграции:
+    #   ./scripts/prisma.sh deploy
+    echo "ВНИМАНИЕ: db push синхронизирует схему напрямую и может удалить данные."
+    echo "Для продакшена используйте ./scripts/prisma.sh deploy"
+    for s in "${SERVICES[@]}"; do
+      run_for_service "$s" db push --skip-generate --accept-data-loss
+    done ;;
   migrate)
     NAME="${1:-init}"
     for s in "${SERVICES[@]}"; do run_for_service "$s" migrate dev --name "$NAME"; done ;;

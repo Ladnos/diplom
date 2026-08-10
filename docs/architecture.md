@@ -876,6 +876,12 @@ video.call.ended
 | `auth.user.registered` | userId, email, роль | **hr** — создать заготовку профиля; **notification** — письмо-приветствие |
 | `auth.password.reset_requested` | userId, token, ttl | **notification** — письмо со ссылкой |
 | `auth.session.suspicious` | userId, ip, ua | **notification** — предупреждение; **analytics** |
+| `auth.role.granted` | userId, roleCode, actorUserId, **auto** | **notification** — уведомить пользователя; **analytics** — журнал аудита |
+| `auth.role.revoked` | userId, roleCode, actorUserId, **auto** | **notification**; **analytics** |
+| `auth.user.blocked` | userId, reason, actorUserId | **notification** — уведомить пользователя и руководителя; **analytics** |
+| `auth.user.unblocked` | userId, actorUserId | **notification**; **analytics** |
+
+> **Про флаг `auto`.** Роль `MANAGER` не выдаётся вручную: она выводится из оргструктуры — появился первый подчинённый, появилась роль; не осталось ни одного, роль снимается. Это убирает целый класс обращений «руководителя назначили, а согласовывать он не может». События публикуются и для автоматических изменений: журнал аудита обязан объяснять, откуда у пользователя появилось право, иначе разбор инцидента упирается в «оно как-то само».
 
 **Персонал (`hr-service`, модуль `staff`)**
 

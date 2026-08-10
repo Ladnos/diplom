@@ -12,6 +12,7 @@ import {
 } from '@crm/contracts';
 import { PROCESSED_EVENT_STORE, handleEvent, type ProcessedEventStore } from '@crm/messaging';
 import { AuthService } from './auth.service';
+import { AdminService } from './admin.service';
 import { OrgProjectionService } from './org-projection.service';
 
 const CONSUMER = 'auth-service';
@@ -30,8 +31,22 @@ export class HrEventsController {
   constructor(
     private readonly org: OrgProjectionService,
     private readonly auth: AuthService,
+    private readonly admin: AdminService,
     @Inject(PROCESSED_EVENT_STORE) private readonly processed: ProcessedEventStore,
   ) {}
+
+  /**
+   * Пересчёт дерева подчинения и следом — синхронизация роли MANAGER.
+   *
+   * Порядок обязателен: роль выводится из замыкания, поэтому сначала
+   * должно обновиться оно. Обе операции вызываются вместе везде, где
+   * меняется иерархия, — отсюда общий метод, а не два вызова подряд
+   * в каждом обработчике.
+   */
+  private async refreshOrgProjection(): Promise<void> {
+    await this.org.rebuildClosure();
+    await this.admin.syncManagerRoles();
+  }
 
   @EventPattern(HrEvents.EMPLOYEE_CREATED)
   async onEmployeeCreated(
@@ -48,7 +63,7 @@ export class HrEventsController {
           managerId: payload.managerId ?? null,
           active: true,
         });
-        await this.org.rebuildClosure();
+        await this.refreshOrgProjection();
       },
     );
   }
@@ -70,7 +85,7 @@ export class HrEventsController {
           departmentId: payload.changed.departmentId,
           managerId: payload.changed.managerId,
         });
-        await this.org.rebuildClosure();
+        await this.refreshOrgProjection();
       },
     );
   }
@@ -88,7 +103,7 @@ export class HrEventsController {
       { envelope, context, consumer: CONSUMER, store: this.processed, logger: this.logger },
       async (payload) => {
         await this.org.deactivateEmployee(payload.employeeId);
-        await this.org.rebuildClosure();
+        await this.refreshOrgProjection();
         await this.auth.revokeAllSessions(payload.userId, 'сотрудник уволен');
       },
     );
@@ -106,7 +121,7 @@ export class HrEventsController {
           employeeId: payload.employeeId,
           managerId: payload.newManagerId ?? null,
         });
-        await this.org.rebuildClosure();
+        await this.refreshOrgProjection();
       },
     );
   }

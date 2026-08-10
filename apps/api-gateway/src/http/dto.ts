@@ -1,4 +1,16 @@
-import { IsEmail, IsIn, IsNumber, IsOptional, IsString, IsUUID, Length, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Max,
+  Min,
+} from 'class-validator';
 
 /**
  * DTO входящих запросов.
@@ -84,6 +96,52 @@ export class ChangeEmploymentDto {
   @IsOptional()
   @IsString()
   validFrom?: string;
+}
+
+/**
+ * Коды ролей проверяются по списку, а не свободной строкой: опечатка
+ * в имени роли иначе создала бы «назначение», которое ничего не даёт,
+ * и разбирались бы с ним по журналу аудита.
+ */
+export const ROLE_CODES = ['EMPLOYEE', 'MANAGER', 'HR', 'ADMIN'] as const;
+
+export class GrantRoleDto {
+  @IsIn(ROLE_CODES, { message: `роль должна быть одной из: ${ROLE_CODES.join(', ')}` })
+  roleCode!: (typeof ROLE_CODES)[number];
+}
+
+export class BlockUserDto {
+  @IsString()
+  @Length(3, 500, { message: 'укажите причину блокировки (от 3 символов)' })
+  reason!: string;
+}
+
+export class ListUsersQuery {
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  q?: string;
+
+  @IsOptional()
+  @IsIn(ROLE_CODES)
+  role?: (typeof ROLE_CODES)[number];
+
+  @IsOptional()
+  @IsIn(['ACTIVE', 'BLOCKED'])
+  status?: 'ACTIVE' | 'BLOCKED';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }
 
 export class DeactivateEmployeeDto {

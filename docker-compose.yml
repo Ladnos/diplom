@@ -114,6 +114,10 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?переменная JWT_REFRESH_SECRET обязательна}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
+      # Создание первого администратора при пустой системе
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Администратор системы}
 
   hr-service:
     <<: [*service-base, *logging]

@@ -61,6 +61,28 @@ export interface SessionSuspicious {
   reason: string;
 }
 
+/** Изменение роли. `auto: true` — выдано системой из оргструктуры. */
+export interface RoleChanged {
+  userId: string;
+  employeeId?: string;
+  roleCode: string;
+  actorUserId?: string;
+  auto: boolean;
+}
+
+export interface UserBlocked {
+  userId: string;
+  employeeId?: string;
+  reason: string;
+  actorUserId: string;
+}
+
+export interface UserUnblocked {
+  userId: string;
+  employeeId?: string;
+  actorUserId: string;
+}
+
 // ── hr: staff ───────────────────────────────────────────────────────────────
 
 export interface EmployeeCreated {
@@ -426,6 +448,10 @@ export interface EventPayloadMap {
   [AuthEvents.USER_REGISTERED]: UserRegistered;
   [AuthEvents.PASSWORD_RESET_REQUESTED]: PasswordResetRequested;
   [AuthEvents.SESSION_SUSPICIOUS]: SessionSuspicious;
+  [AuthEvents.ROLE_GRANTED]: RoleChanged;
+  [AuthEvents.ROLE_REVOKED]: RoleChanged;
+  [AuthEvents.USER_BLOCKED]: UserBlocked;
+  [AuthEvents.USER_UNBLOCKED]: UserUnblocked;
 
   [HrEvents.EMPLOYEE_CREATED]: EmployeeCreated;
   [HrEvents.EMPLOYEE_UPDATED]: EmployeeUpdated;

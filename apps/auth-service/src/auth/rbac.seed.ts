@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PermissionScope } from '../../generated/prisma';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -84,23 +84,10 @@ const ROLES: { code: string; name: string; grants: Grant[] }[] = [
 ];
 
 @Injectable()
-export class RbacSeed implements OnApplicationBootstrap {
+export class RbacSeed {
   private readonly logger = new Logger(RbacSeed.name);
 
   constructor(private readonly prisma: PrismaService) {}
-
-  async onApplicationBootstrap(): Promise<void> {
-    try {
-      await this.sync();
-    } catch (error) {
-      // Не валим сервис: база может быть ещё не мигрирована при первом
-      // запуске. Матрица применится при следующем старте.
-      this.logger.error({
-        message: 'не удалось синхронизировать матрицу прав',
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
 
   /** Идемпотентно приводит роли и гранты в БД к состоянию из кода. */
   async sync(): Promise<void> {

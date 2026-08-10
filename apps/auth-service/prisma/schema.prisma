@@ -93,10 +93,22 @@ model UserRole {
   userId   String @map("user_id") @db.Uuid
   roleCode String @map("role_code")
 
+  /// Роль выдана системой, а не человеком.
+  ///
+  /// MANAGER выводится из оргструктуры: появился первый подчинённый —
+  /// появилась роль, не осталось ни одного — снялась. Синхронизация
+  /// трогает ТОЛЬКО записи с auto = true, поэтому роль, выданную
+  /// администратором вручную, она никогда не снимет.
+  auto       Boolean  @default(false)
+  /// userId администратора. null для авто-выдачи и для bootstrap.
+  assignedBy String?  @map("assigned_by") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   role Role @relation(fields: [roleCode], references: [code], onDelete: Cascade)
 
   @@id([userId, roleCode])
+  @@index([roleCode])
   @@map("user_roles")
 }
 

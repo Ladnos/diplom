@@ -5,6 +5,7 @@ import { MessagingModule } from '@crm/messaging';
 import { GrpcClientsModule } from '@crm/grpc-clients';
 import { SERVICES } from '@crm/contracts';
 import { AuthClient } from './clients/auth.client';
+import { AdminClient } from './clients/admin.client';
 import { HrClient } from './clients/hr.client';
 import { RedisService } from './cache/redis.service';
 import { JwtAuthGuard } from './auth/auth.guard';
@@ -12,6 +13,7 @@ import { PermissionGuard } from './auth/permission.guard';
 import { GrpcExceptionFilter } from './http/grpc-exception.filter';
 import { AuthController } from './http/auth.controller';
 import { EmployeesController } from './http/employees.controller';
+import { AdminController } from './http/admin.controller';
 
 /**
  * Корневой модуль api-gateway.
@@ -40,9 +42,10 @@ import { EmployeesController } from './http/employees.controller';
       SERVICES.ANALYTICS,
     ]),
   ],
-  controllers: [AuthController, EmployeesController],
+  controllers: [AuthController, EmployeesController, AdminController],
   providers: [
     AuthClient,
+    AdminClient,
     HrClient,
     RedisService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },

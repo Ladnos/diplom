@@ -104,3 +104,115 @@ message RevokeAllRequest {
   string user_id = 1;
   string reason = 2;
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+//  Администрирование учётных записей и ролей
+//
+//  Отдельный gRPC-сервис в том же пакете: у него принципиально иная
+//  аудитория (администратор, а не каждый запрос пользователя) и иные
+//  требования — полный аудит каждой операции и защита от потери доступа
+//  к системе. Смешивать его с горячим путём аутентификации не стоит.
+// ────────────────────────────────────────────────────────────────────────────
+
+service AdminService {
+  rpc ListUsers(ListUsersRequest) returns (UserPage);
+  rpc GetUser(UserId) returns (UserDetails);
+  rpc GrantRole(RoleAssignment) returns (UserDetails);
+  rpc RevokeRole(RoleAssignment) returns (UserDetails);
+  rpc BlockUser(BlockRequest) returns (UserDetails);
+  rpc UnblockUser(ActorRequest) returns (UserDetails);
+  rpc ListSessions(UserId) returns (SessionList);
+  rpc RevokeUserSessions(BlockRequest) returns (common.Counter);
+  rpc ListRoles(common.Empty) returns (RoleList);
+}
+
+message UserId {
+  string user_id = 1;
+}
+
+message ActorRequest {
+  string user_id = 1;
+  string actor_user_id = 2;
+}
+
+message ListUsersRequest {
+  // Поиск по email; пусто — все
+  string query = 1;
+  string role_code = 2;
+  string status = 3;
+  int32 limit = 4;
+  int32 offset = 5;
+}
+
+message UserSummary {
+  string user_id = 1;
+  string email = 2;
+  string status = 3;
+  string employee_id = 4;
+  repeated string roles = 5;
+  int64 created_at = 6;
+  int32 active_sessions = 7;
+}
+
+message UserPage {
+  repeated UserSummary users = 1;
+  int32 total = 2;
+}
+
+message RoleGrant {
+  string role_code = 1;
+  string role_name = 2;
+  // Роль выдана системой, а не человеком: MANAGER выводится из
+  // оргструктуры и снимается, когда подчинённых не остаётся.
+  bool auto = 3;
+  string assigned_by = 4;
+  int64 assigned_at = 5;
+}
+
+message UserDetails {
+  UserSummary summary = 1;
+  repeated RoleGrant grants = 2;
+}
+
+message RoleAssignment {
+  string user_id = 1;
+  string role_code = 2;
+  // Кто выполняет операцию — нужен и для аудита, и для проверок,
+  // защищающих от самоблокировки.
+  string actor_user_id = 3;
+}
+
+message BlockRequest {
+  string user_id = 1;
+  string reason = 2;
+  string actor_user_id = 3;
+}
+
+message SessionInfo {
+  string session_id = 1;
+  string user_agent = 2;
+  string ip = 3;
+  int64 created_at = 4;
+  int64 expires_at = 5;
+}
+
+message SessionList {
+  repeated SessionInfo sessions = 1;
+}
+
+message PermissionInfo {
+  string resource = 1;
+  string action = 2;
+  string scope = 3;
+}
+
+message RoleInfo {
+  string code = 1;
+  string name = 2;
+  repeated PermissionInfo permissions = 3;
+  int32 user_count = 4;
+}
+
+message RoleList {
+  repeated RoleInfo roles = 1;
+}

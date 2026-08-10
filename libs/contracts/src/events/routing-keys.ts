@@ -16,6 +16,14 @@ export const AuthEvents = {
   USER_REGISTERED: 'auth.user.registered',
   PASSWORD_RESET_REQUESTED: 'auth.password.reset_requested',
   SESSION_SUSPICIOUS: 'auth.session.suspicious',
+  // Административные операции. Публикуются всегда, включая автоматическую
+  // выдачу роли MANAGER: журнал аудита должен объяснять, откуда у
+  // пользователя появилось право, иначе разбор инцидента упирается
+  // в «оно как-то само».
+  ROLE_GRANTED: 'auth.role.granted',
+  ROLE_REVOKED: 'auth.role.revoked',
+  USER_BLOCKED: 'auth.user.blocked',
+  USER_UNBLOCKED: 'auth.user.unblocked',
 } as const;
 
 export const HrEvents = {
