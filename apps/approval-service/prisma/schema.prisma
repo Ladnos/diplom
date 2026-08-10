@@ -1,13 +1,12 @@
 // Схема базы approval_db — принадлежит только сервису approval-service.
-// Database per Service: обращаться к этим таблицам из других сервисов
-// запрещено, данные отдаются через gRPC и события (docs/architecture.md §1).
+//
+// Сервис владеет ПРОЦЕССОМ согласования, но не результатом (ADR-3):
+// здесь лежат заявки и маршруты, а отпуска и переработки — в hr_db.
+// docs/architecture.md §2.1, §10.3
 
 generator client {
   provider      = "prisma-client-js"
-  // Свой каталог на сервис: клиенты девяти сервисов не должны
-  // перезаписывать друг друга в общем node_modules монорепозитория.
   output        = "../generated/prisma"
-  // musl-вариант нужен для рантайма на node:22-alpine
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
@@ -16,34 +15,157 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Транзакционный outbox (§7.7).
-/// Событие пишется сюда в ОДНОЙ транзакции с изменением доменных данных,
-/// а публикует его отдельный воркер. Без этого падение процесса между
-/// COMMIT и publish() теряет событие безвозвратно.
-model Outbox {
-  id            String    @id @default(uuid()) @db.Uuid
-  eventId       String    @unique @map("event_id") @db.Uuid
-  eventType     String    @map("event_type")
-  eventVersion  Int       @default(1) @map("event_version")
-  payload       Json
-  correlationId String    @map("correlation_id")
-  causationId   String?   @map("causation_id")
-  actorUserId   String?   @map("actor_user_id")
-  actorEmployeeId String? @map("actor_employee_id")
-  occurredAt    DateTime  @map("occurred_at")
-  sentAt        DateTime? @map("sent_at")
-  attempts      Int       @default(0)
-  lastError     String?   @map("last_error")
-  createdAt     DateTime  @default(now()) @map("created_at")
+// ─────────────────────────────────────────────────────────────────────────
+//  Заявки
+// ─────────────────────────────────────────────────────────────────────────
 
-  // Частичный индекс по неотправленным — воркер читает только их
+enum RequestType {
+  VACATION       // отпуск
+  TIME_OFF       // отгул, больничный
+  OVERTIME       // переработка
+  SHIFT_SWAP     // обмен сменами
+  TIMESHEET_FIX  // корректировка табеля
+  TRIP           // командировка
+  PERIOD_CLOSE   // закрытие табеля за период
+  WORK_ACT       // акт выполненных работ (DELIVERABLE_BASED)
+}
+
+/// Состояния заявки. docs/architecture.md ADR-3
+///
+///   DRAFT → PENDING → APPROVED → APPLIED
+///              ↓          ↓
+///          REJECTED   APPLY_FAILED
+///              ↓
+///     CANCELLED / EXPIRED
+///
+/// APPROVED и APPLIED разделены намеренно: между решением и его
+/// применением лежит асинхронная граница сервисов, и заявка, застрявшая
+/// в APPROVED, — наблюдаемая проблема, а не тихая потеря.
+enum RequestStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  APPLIED
+  APPLY_FAILED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum StepStatus {
+  WAITING
+  APPROVED
+  REJECTED
+  /// Шаг пропущен: согласующий совпал с автором или не найден
+  SKIPPED
+}
+
+model Request {
+  id String @id @default(uuid()) @db.Uuid
+
+  type             RequestType
+  authorEmployeeId String        @map("author_employee_id") @db.Uuid
+  status           RequestStatus @default(PENDING)
+
+  /// Индекс текущего шага маршрута, начиная с 1
+  currentStep Int @default(1) @map("current_step")
+
+  /// Тело заявки, специфичное для типа: даты отпуска, минуты переработки.
+  /// JSON, а не колонки: типы заявок добавляются чаще, чем меняется схема,
+  /// а читает тело только сервис-исполнитель, который знает свой формат.
+  payload Json
+
+  /// Срок, к которому заявка должна быть рассмотрена. По истечении
+  /// планировщик эскалирует её вышестоящему руководителю.
+  slaDeadline DateTime? @map("sla_deadline")
+
+  /// Момент перехода в APPROVED. От него отсчитывается таймер саги:
+  /// если подтверждение применения не пришло, заявка уходит
+  /// в APPLY_FAILED, а не висит вечно.
+  approvedAt DateTime? @map("approved_at")
+  appliedAt  DateTime? @map("applied_at")
+
+  /// Причина отказа или неудачного применения — показывается автору
+  failureReason String? @map("failure_reason")
+
+  steps ApprovalStep[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([authorEmployeeId, status])
+  @@index([status, slaDeadline])
+  // Частичный поиск зависших саг: статус + время перехода в APPROVED
+  @@index([status, approvedAt])
+  @@map("requests")
+}
+
+model ApprovalStep {
+  id String @id @default(uuid()) @db.Uuid
+
+  requestId String  @map("request_id") @db.Uuid
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  /// Порядок в маршруте, начиная с 1
+  order Int
+
+  approverEmployeeId String @map("approver_employee_id") @db.Uuid
+  /// Кто фактически принял решение, если действовало делегирование
+  decidedBy          String? @map("decided_by") @db.Uuid
+
+  status  StepStatus @default(WAITING)
+  comment String?
+  decidedAt DateTime? @map("decided_at")
+
+  @@unique([requestId, order])
+  @@index([approverEmployeeId, status])
+  @@map("approval_steps")
+}
+
+/// Делегирование права согласования на время отсутствия руководителя.
+///
+/// Живёт здесь, а не только в auth_db: approval строит по нему маршруты
+/// и подставляет заместителя, а auth использует свою копию для проверки
+/// прав. Обе наполняются одним событием approval.delegation.set.
+model Delegation {
+  id String @id @default(uuid()) @db.Uuid
+
+  managerEmployeeId  String   @map("manager_employee_id") @db.Uuid
+  delegateEmployeeId String   @map("delegate_employee_id") @db.Uuid
+  validFrom          DateTime @map("valid_from") @db.Date
+  validTo            DateTime @map("valid_to") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([managerEmployeeId, validFrom, validTo])
+  @@index([delegateEmployeeId, validFrom, validTo])
+  @@map("delegations")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Инфраструктура обмена сообщениями (§7.7)
+// ─────────────────────────────────────────────────────────────────────────
+
+model Outbox {
+  id              String    @id @default(uuid()) @db.Uuid
+  eventId         String    @unique @map("event_id") @db.Uuid
+  eventType       String    @map("event_type")
+  eventVersion    Int       @default(1) @map("event_version")
+  payload         Json
+  correlationId   String    @map("correlation_id")
+  causationId     String?   @map("causation_id")
+  actorUserId     String?   @map("actor_user_id")
+  actorEmployeeId String?   @map("actor_employee_id")
+  occurredAt      DateTime  @map("occurred_at")
+  sentAt          DateTime? @map("sent_at")
+  attempts        Int       @default(0)
+  lastError       String?   @map("last_error")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
   @@index([sentAt, createdAt])
   @@map("outbox")
 }
 
-/// Идемпотентность потребителя (§7.7).
-/// RabbitMQ гарантирует at-least-once, поэтому одно и то же событие может
-/// прийти дважды. Составной первичный ключ отбрасывает повтор на уровне БД.
 model ProcessedEvent {
   eventId     String   @map("event_id") @db.Uuid
   consumer    String

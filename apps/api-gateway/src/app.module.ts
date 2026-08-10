@@ -8,6 +8,7 @@ import { AuthClient } from './clients/auth.client';
 import { AdminClient } from './clients/admin.client';
 import { HrClient } from './clients/hr.client';
 import { ScheduleClient } from './clients/schedule.client';
+import { ApprovalClient } from './clients/approval.client';
 import { RedisService } from './cache/redis.service';
 import { JwtAuthGuard } from './auth/auth.guard';
 import { PermissionGuard } from './auth/permission.guard';
@@ -17,6 +18,7 @@ import { EmployeesController } from './http/employees.controller';
 import { AdminController } from './http/admin.controller';
 import { ScheduleController } from './http/schedule.controller';
 import { TimesheetController } from './http/timesheet.controller';
+import { RequestsController } from './http/requests.controller';
 
 /**
  * Корневой модуль api-gateway.
@@ -51,12 +53,14 @@ import { TimesheetController } from './http/timesheet.controller';
     AdminController,
     ScheduleController,
     TimesheetController,
+    RequestsController,
   ],
   providers: [
     AuthClient,
     AdminClient,
     HrClient,
     ScheduleClient,
+    ApprovalClient,
     RedisService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionGuard },

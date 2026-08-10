@@ -7,6 +7,7 @@ import {
   IsIn,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -339,4 +340,63 @@ export class SeedYearDto {
   @Min(2020)
   @Max(2100)
   year!: number;
+}
+
+// ── Заявки на согласование ──────────────────────────────────────────────
+
+export const REQUEST_TYPES = [
+  'VACATION',
+  'TIME_OFF',
+  'OVERTIME',
+  'SHIFT_SWAP',
+  'TIMESHEET_FIX',
+  'TRIP',
+  'PERIOD_CLOSE',
+  'WORK_ACT',
+] as const;
+
+export class CreateRequestDto {
+  @IsIn(REQUEST_TYPES, { message: `тип заявки: ${REQUEST_TYPES.join(', ')}` })
+  type!: (typeof REQUEST_TYPES)[number];
+
+  /**
+   * Тело заявки. Состав зависит от типа и проверяется в approval-service:
+   * отпуск — from и to, переработка — date и minutes, и так далее.
+   * Здесь только базовая проверка, что это объект, а не строка или массив.
+   */
+  @IsObject({ message: 'payload должен быть объектом' })
+  payload!: Record<string, unknown>;
+}
+
+export class DecisionDto {
+  @IsOptional()
+  @IsString()
+  @Length(0, 500)
+  comment?: string;
+}
+
+export class DelegationDto {
+  @IsUUID()
+  delegateEmployeeId!: string;
+
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from: ожидается дата YYYY-MM-DD' })
+  from!: string;
+
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to: ожидается дата YYYY-MM-DD' })
+  to!: string;
+}
+
+export class PageQuery {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }

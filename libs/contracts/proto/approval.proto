@@ -102,6 +102,7 @@ message CreateRequestCmd {
 
 message RequestId {
   string request_id = 1;
+  string actor_employee_id = 2;
 }
 
 message EmployeeRef {
@@ -122,6 +123,9 @@ message DecisionRequest {
   string request_id = 1;
   string approver_employee_id = 2;
   string comment = 3;
+  // Учётная запись согласующего. Нужна отдельно от employee_id: проверка
+  // прав в auth-service работает с пользователем, а маршрут — с сотрудником.
+  string actor_user_id = 4;
 }
 
 message DelegationRequest {
@@ -130,6 +134,15 @@ message DelegationRequest {
   common.DatePeriod period = 3;
 }
 
+message RequestTypeInfo {
+  RequestType type = 1;
+  string title = 2;
+  int32 manager_levels = 3;
+  bool requires_hr = 4;
+  int32 sla_hours = 5;
+}
+
 message RequestTypeList {
   repeated RequestType types = 1;
+  repeated RequestTypeInfo details = 2;
 }
