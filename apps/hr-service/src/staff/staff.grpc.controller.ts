@@ -115,6 +115,9 @@ export class StaffGrpcController {
         employee_id: contact.employeeId,
         email: contact.email,
         phone: contact.phone,
+        user_id: contact.userId,
+        full_name: contact.fullName,
+        active: contact.active,
       })),
     };
   }

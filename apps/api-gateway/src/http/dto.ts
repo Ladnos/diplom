@@ -16,6 +16,7 @@ import {
   Matches,
   Max,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 /**
@@ -594,4 +595,112 @@ export class AssigneeCardsQuery {
   @Min(1)
   @Max(500)
   limit?: number;
+}
+
+// ── Уведомления ─────────────────────────────────────────────────────────
+
+export class NotificationsQuery {
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  onlyUnread?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  /**
+   * Курсор — момент создания последнего показанного уведомления, а не
+   * смещение: лента пополняется сверху, и offset после трёх новых
+   * уведомлений повторил бы часть предыдущей страницы.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(1, 32)
+  cursor?: string;
+}
+
+export class MarkReadDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsUUID('4', { each: true })
+  notificationIds?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  all?: boolean;
+}
+
+export class ChannelPreferenceDto {
+  @IsIn(['EMAIL', 'WEB_PUSH', 'IN_APP'])
+  channel!: string;
+
+  @IsBoolean()
+  enabled!: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  @Length(3, 64, { each: true })
+  mutedEventTypes?: string[];
+}
+
+export class QuietHoursDto {
+  @IsBoolean()
+  enabled!: boolean;
+
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'from: ожидается время вида 22:00' })
+  from!: string;
+
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'to: ожидается время вида 08:00' })
+  to!: string;
+
+  /** Зона IANA: тихие часы — это стенные часы пользователя, а не сервера. */
+  @IsOptional()
+  @IsString()
+  @Length(3, 64)
+  timezone?: string;
+}
+
+export class UpdatePreferencesDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ValidateNested({ each: true })
+  @Type(() => ChannelPreferenceDto)
+  channels?: ChannelPreferenceDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => QuietHoursDto)
+  quietHours?: QuietHoursDto;
+}
+
+/**
+ * Подписка браузера на Web Push — то, что возвращает
+ * PushManager.subscribe() в интерфейсе.
+ */
+export class PushSubscriptionDto {
+  @IsString()
+  @Length(10, 1024)
+  endpoint!: string;
+
+  @IsString()
+  @Length(10, 256)
+  p256dh!: string;
+
+  @IsString()
+  @Length(4, 256)
+  auth!: string;
+}
+
+export class RemovePushSubscriptionDto {
+  @IsString()
+  @Length(10, 1024)
+  endpoint!: string;
 }

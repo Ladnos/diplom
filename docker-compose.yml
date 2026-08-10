@@ -231,6 +231,15 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.local}
+      # Ссылки в письме и в push обязаны быть абсолютными: письмо
+      # открывают в почтовом клиенте, где относительный путь никуда
+      # не ведёт. Значение — публичный адрес nginx, а не имя контейнера.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      # Сервис подписан на весь поток событий системы, поэтому его
+      # таблицы растут со скоростью всей активности пользователей.
+      # Срок хранения — эксплуатационный параметр, а не константа кода.
+      NOTIFICATION_RETENTION_DAYS: ${NOTIFICATION_RETENTION_DAYS:-90}
+      PROCESSED_EVENT_RETENTION_DAYS: ${PROCESSED_EVENT_RETENTION_DAYS:-7}
 
   analytics-service:
     <<: [*service-base, *logging]

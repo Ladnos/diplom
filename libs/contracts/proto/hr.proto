@@ -76,10 +76,18 @@ message EmployeeList {
   repeated Employee employees = 1;
 }
 
+// Fallback для notification-service (§6.3, §7.5): им наполняется локальная
+// проекция контактов, если событие hr.employee.created прошло мимо — было
+// опубликовано до развёртывания уведомлений или ушло в DLQ. Поэтому здесь
+// не только адрес: без user_id и признака активности запись в проекции
+// не собрать, а адресовать уведомление уволенному не нужно.
 message Contact {
   string employee_id = 1;
   string email = 2;
   string phone = 3;
+  string user_id = 4;
+  string full_name = 5;
+  bool active = 6;
 }
 
 message ContactList {

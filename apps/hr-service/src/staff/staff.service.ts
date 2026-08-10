@@ -151,16 +151,42 @@ export class StaffService {
     return employee?.active === true;
   }
 
-  async getContacts(ids: string[]): Promise<{ employeeId: string; email: string; phone: string }[]> {
+  /**
+   * Контакты пачкой — fallback для notification-service (§6.3).
+   *
+   * Отдаётся не только адрес: уведомления собирают из этого ответа
+   * недостающую строку своей проекции, а без userId и признака
+   * активности она бесполезна.
+   */
+  async getContacts(ids: string[]): Promise<
+    {
+      employeeId: string;
+      email: string;
+      phone: string;
+      userId: string;
+      fullName: string;
+      active: boolean;
+    }[]
+  > {
     if (ids.length === 0) return [];
     const employees = await this.prisma.employee.findMany({
       where: { id: { in: ids } },
-      select: { id: true, email: true, phone: true },
+      select: {
+        id: true,
+        email: true,
+        phone: true,
+        userId: true,
+        fullName: true,
+        active: true,
+      },
     });
     return employees.map((employee) => ({
       employeeId: employee.id,
       email: employee.email,
       phone: employee.phone ?? '',
+      userId: employee.userId,
+      fullName: employee.fullName,
+      active: employee.active,
     }));
   }
 

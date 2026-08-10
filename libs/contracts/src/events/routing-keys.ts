@@ -153,3 +153,16 @@ export const RedisChannels = {
   boardPresence: (boardId: string) => `board:${boardId}:presence`,
   callSpeaking: (roomId: string) => `call:${roomId}:speaking`,
 } as const;
+
+/**
+ * Ключи Redis, которые читает не тот сервис, который их пишет.
+ *
+ * Присутствие ставит api-gateway, пока держит WS-соединение, а читает
+ * notification-service, чтобы не слать push тому, кто и так смотрит на
+ * экран (§7.3, chat.message.sent). Формат ключа поэтому живёт в общих
+ * контрактах: разошедшиеся строки в двух сервисах дали бы не ошибку,
+ * а тихую отправку push всем подряд.
+ */
+export const RedisKeys = {
+  presence: (userId: string) => `presence:user:${userId}`,
+} as const;

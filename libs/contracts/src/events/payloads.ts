@@ -7,8 +7,8 @@
  * а не продакшен.
  */
 
-import type { EventType } from './routing-keys';
-import { AuthEvents, HrEvents, ApprovalEvents, TaskEvents, ChatEvents, VideoEvents, FileEvents, AnalyticsEvents } from './routing-keys';
+import type { CommandType, EventType } from './routing-keys';
+import { AuthEvents, HrEvents, ApprovalEvents, TaskEvents, ChatEvents, VideoEvents, FileEvents, AnalyticsEvents, Commands } from './routing-keys';
 
 // ── Общие типы модели найма (зеркало enum'ов из hr.proto) ───────────────────
 
@@ -536,3 +536,69 @@ export interface EventPayloadMap {
 export type PayloadOf<T extends EventType> = T extends keyof EventPayloadMap
   ? EventPayloadMap[T]
   : never;
+
+// ── Payload асинхронных команд ──────────────────────────────────────────────
+//
+// Команды отделены от событий не формально: событие констатирует
+// свершившийся факт и не знает подписчиков, команда адресована конкретному
+// сервису и требует действия (§7.4). Отсюда и разные обменники.
+
+/** Канал доставки. Зеркало enum Channel из notification.proto. */
+export type NotificationChannel = 'EMAIL' | 'WEB_PUSH' | 'IN_APP';
+
+/** URGENT игнорирует тихие часы: приглашение в звонок к утру бесполезно. */
+export type NotificationPriority = 'NORMAL' | 'HIGH' | 'URGENT';
+
+/**
+ * Кому адресовано уведомление. Способы адресации складываются, получатели
+ * дедуплицируются. Пустая аудитория — ошибка, а не «всем»: рассылка на всю
+ * компанию должна быть заявлена явным `everyone`, иначе забытое поле
+ * превращает точечное уведомление в веерное.
+ */
+export interface NotificationAudience {
+  userIds?: string[];
+  employeeIds?: string[];
+  departmentIds?: string[];
+  roleCodes?: string[];
+  everyone?: boolean;
+}
+
+/**
+ * Команда notification.send — явная отправка вне каталога правил (§7.4).
+ *
+ * Текст передаётся готовым, а не ключом шаблона: отправитель находится в
+ * другом сервисе и в момент отправки знает подробности, которых нет в
+ * payload доменного события. Каталог шаблонов остаётся за уведомлениями,
+ * которые выводятся из событий.
+ */
+export interface NotificationSend {
+  audience: NotificationAudience;
+  title: string;
+  body: string;
+  /** Относительный путь в интерфейсе, куда ведёт уведомление. */
+  link?: string;
+  /** По умолчанию — IN_APP и EMAIL. */
+  channels?: NotificationChannel[];
+  priority?: NotificationPriority;
+  /** Ключ для настроек подписки и группировки в интерфейсе. */
+  eventType?: string;
+}
+
+/**
+ * Команда notification.broadcast — рассылка по отделу или всей компании.
+ *
+ * Payload совпадает с notification.send намеренно: различие не в форме
+ * сообщения, а в маршрутизации и в том, что рассылка проходит отдельный
+ * учёт — по ней видно, кто и когда обратился ко всей компании.
+ */
+export type NotificationBroadcast = NotificationSend;
+
+export interface CommandPayloadMap {
+  [Commands.NOTIFICATION_SEND]: NotificationSend;
+  [Commands.NOTIFICATION_BROADCAST]: NotificationBroadcast;
+}
+
+/** Payload по типу команды. Для команд без описанного payload — unknown. */
+export type CommandPayloadOf<T extends CommandType> = T extends keyof CommandPayloadMap
+  ? CommandPayloadMap[T]
+  : unknown;

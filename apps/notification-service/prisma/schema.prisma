@@ -16,34 +16,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Транзакционный outbox (§7.7).
-/// Событие пишется сюда в ОДНОЙ транзакции с изменением доменных данных,
-/// а публикует его отдельный воркер. Без этого падение процесса между
-/// COMMIT и publish() теряет событие безвозвратно.
-model Outbox {
-  id            String    @id @default(uuid()) @db.Uuid
-  eventId       String    @unique @map("event_id") @db.Uuid
-  eventType     String    @map("event_type")
-  eventVersion  Int       @default(1) @map("event_version")
-  payload       Json
-  correlationId String    @map("correlation_id")
-  causationId   String?   @map("causation_id")
-  actorUserId   String?   @map("actor_user_id")
-  actorEmployeeId String? @map("actor_employee_id")
-  occurredAt    DateTime  @map("occurred_at")
-  sentAt        DateTime? @map("sent_at")
-  attempts      Int       @default(0)
-  lastError     String?   @map("last_error")
-  createdAt     DateTime  @default(now()) @map("created_at")
-
-  // Частичный индекс по неотправленным — воркер читает только их
-  @@index([sentAt, createdAt])
-  @@map("outbox")
-}
-
 /// Идемпотентность потребителя (§7.7).
 /// RabbitMQ гарантирует at-least-once, поэтому одно и то же событие может
 /// прийти дважды. Составной первичный ключ отбрасывает повтор на уровне БД.
+///
+/// Отметка ставится ТОЛЬКО для событий, по которым что-то произошло:
+/// сервис подписан на весь поток системы (auth.# hr.# approval.# task.#
+/// chat.# video.# file.#), и записывать сюда каждое событие, включая те,
+/// на которые нет ни одного правила, означало бы вести полный журнал
+/// системы в базе уведомлений.
 model ProcessedEvent {
   eventId     String   @map("event_id") @db.Uuid
   consumer    String
@@ -53,4 +34,235 @@ model ProcessedEvent {
   @@id([eventId, consumer])
   @@index([processedAt])
   @@map("processed_events")
+}
+
+// Таблицы outbox здесь намеренно нет. Транзакционный outbox нужен
+// издателю событий, а notification-service не публикует ни одного:
+// он конечная точка потока (§2.1, «практически чистый потребитель»).
+// Пустая таблица и воркер, опрашивающий её раз в секунду в каждом
+// контейнере, — цена без выигрыша. Появится исходящее событие —
+// вернутся и таблица, и MessagingModule.forRoot({ outbox: true }).
+
+// ────────────────────────────────────────────────────────────────────────────
+// Проекция контактов
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Локальная денормализованная копия контактов (§7.5).
+///
+/// Наполняется событиями auth.user.* и hr.employee.*, а не запросами в
+/// hr-service. Это сохраняет свойство «сервис без входящих gRPC» и даёт
+/// главное: рассылка продолжает работать, когда hr-service недоступен —
+/// а уведомления нужны как раз в момент, когда что-то сломалось.
+///
+/// Ключ — userId, а не employeeId. Уведомление умеет существовать раньше
+/// кадровой карточки: приветственное письмо и ссылка на сброс пароля
+/// уходят пользователю, у которого employeeId ещё нет. Обратный порядок
+/// невозможен: сотрудника без учётной записи система не заводит.
+model Contact {
+  userId            String  @id @map("user_id") @db.Uuid
+  /// Появляется, когда hr-service заведёт карточку (hr.employee.created).
+  employeeId        String? @unique @map("employee_id") @db.Uuid
+  email             String
+  fullName          String  @default("") @map("full_name")
+  departmentId      String? @map("department_id") @db.Uuid
+  /// Кому эскалировать: «уведомить руководителя» встречается в каталоге
+  /// событий пять раз, и каждый раз спрашивать оргструктуру у hr-service
+  /// значило бы поставить доставку уведомления в зависимость от него.
+  managerEmployeeId String? @map("manager_employee_id") @db.Uuid
+
+  /// Роли из auth.user.registered и auth.role.granted/revoked.
+  /// Нужны адресации «уведомить бухгалтерию» и «уведомить администратора»
+  /// (hr.timesheet.closed, file.storage.low).
+  roles    String[] @default([])
+  /// IANA-зона для тихих часов. Отдельно от настроек: тихие часы можно
+  /// не включать, а часовой пояс у человека есть всегда.
+  timezone String   @default("Europe/Moscow")
+
+  /// false после увольнения или блокировки: уволенному писать не нужно,
+  /// но историю уведомлений и сам контакт удалять нельзя — по ним
+  /// разбираются вопросы «а его предупреждали?».
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  preference    Preference?
+  channels      ChannelPreference[]
+  subscriptions PushSubscription[]
+  notifications Notification[]
+
+  @@index([departmentId])
+  @@index([managerEmployeeId])
+  @@index([active])
+  @@map("contacts")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Настройки подписок
+// ────────────────────────────────────────────────────────────────────────────
+
+enum Channel {
+  EMAIL
+  WEB_PUSH
+  IN_APP
+}
+
+/// Тихие часы и общие настройки. Строки отсутствуют у большинства
+/// пользователей: умолчания живут в коде, а запись появляется только
+/// когда человек что-то поменял. Так «настройки по умолчанию» меняются
+/// правкой кода, а не миграцией миллиона строк.
+model Preference {
+  userId  String  @id @map("user_id") @db.Uuid
+  contact Contact @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  quietHoursEnabled Boolean @default(false) @map("quiet_hours_enabled")
+  /// HH:MM в зоне contact.timezone. Строки, а не время: интервал
+  /// «с 22:00 до 08:00» — это стенные часы пользователя, и перевод их
+  /// в момент времени имеет смысл только вместе с конкретной датой.
+  quietFrom         String  @default("22:00") @map("quiet_from")
+  quietTo           String  @default("08:00") @map("quiet_to")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("preferences")
+}
+
+/// Настройка канала. Отдельная таблица, а не три пары колонок в
+/// preferences: список заглушённых типов у каждого канала свой, и
+/// добавление четвёртого канала не должно быть миграцией схемы.
+model ChannelPreference {
+  userId  String  @map("user_id") @db.Uuid
+  contact Contact @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  channel Channel
+
+  enabled Boolean @default(true)
+
+  /// Заглушённые типы событий, а НЕ разрешённые. При allow-list каждый
+  /// новый тип уведомления молча не доходил бы ни до кого, пока
+  /// пользователь не откроет настройки; отказ такого рода никто
+  /// не замечает. Здесь умолчание — «доставлять», а тишина требует
+  /// явного действия.
+  mutedEventTypes String[] @default([]) @map("muted_event_types")
+
+  @@id([userId, channel])
+  @@map("channel_preferences")
+}
+
+/// Подписка браузера на Web Push. Принадлежит паре «пользователь +
+/// устройство»: у одного человека их столько, сколько браузеров.
+model PushSubscription {
+  id      String  @id @default(uuid()) @db.Uuid
+  userId  String  @map("user_id") @db.Uuid
+  contact Contact @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  /// Уникален глобально — это и есть адрес подписки у push-шлюза.
+  /// Один и тот же браузер, переустановивший подписку, присылает
+  /// прежний endpoint, поэтому регистрация идёт upsert'ом.
+  endpoint  String  @unique
+  p256dh    String
+  auth      String
+  userAgent String? @map("user_agent")
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastSentAt DateTime? @map("last_sent_at")
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Уведомления и доставка
+// ────────────────────────────────────────────────────────────────────────────
+
+enum Priority {
+  NORMAL
+  HIGH
+  /// Игнорирует тихие часы. Приглашение в звонок, доставленное утром,
+  /// бесполезно, а предупреждение о входе с чужого устройства —
+  /// тем более.
+  URGENT
+}
+
+/// Решение «уведомить пользователя X о событии Y» и одновременно запись
+/// in-app истории.
+///
+/// In-app намеренно НЕ является строкой delivery: у него нет транспорта,
+/// он не может не доставиться и ему нечего повторять. Строка в этой
+/// таблице и есть доставленное in-app уведомление.
+model Notification {
+  id      String  @id @default(uuid()) @db.Uuid
+  userId  String  @map("user_id") @db.Uuid
+  contact Contact @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  eventType String   @map("event_type")
+  /// eventId конверта-источника. По нему в логах собирается вся цепочка
+  /// «действие → событие → уведомление» при разборе жалобы «мне ничего
+  /// не пришло» (§7.6).
+  sourceEventId String? @map("source_event_id") @db.Uuid
+  priority      Priority @default(NORMAL)
+
+  title String
+  body  String
+  /// Относительный путь в интерфейсе: /requests/r-42, /boards/b-1?card=c-9
+  link  String?
+
+  /// false, если канал IN_APP выключен или тип заглушён в настройках.
+  /// Запись всё равно создаётся: она остаётся следом принятого решения
+  /// и родителем для строк доставки по почте и push.
+  visible Boolean   @default(true)
+  readAt  DateTime? @map("read_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  deliveries Delivery[]
+
+  /// Покрывает и список «мои уведомления», и счётчик непрочитанного
+  @@index([userId, visible, readAt, createdAt])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+enum DeliveryStatus {
+  /// Ждёт отправки. Для отложенного тихими часами scheduledFor в будущем.
+  PENDING
+  SENT
+  /// Кончились попытки. Разбирается руками, повторная отправка не идёт.
+  FAILED
+  /// Отправлять некуда: подписка протухла, адрес пуст, канал не настроен.
+  /// Отличается от FAILED тем, что виноват не сбой, а состояние адресата.
+  DROPPED
+}
+
+/// Попытка доставки по одному внешнему каналу.
+///
+/// Отправка вынесена из обработчика события намеренно. Обработчик пишет
+/// строки в БД за миллисекунды и подтверждает сообщение брокеру, а SMTP
+/// отвечает секунды и падает. Если бы письмо уходило прямо в обработчике,
+/// недоступный почтовый сервер приводил бы к nack, повторной доставке
+/// всего события и дублю уже отправленных писем по другим каналам.
+model Delivery {
+  id             String       @id @default(uuid()) @db.Uuid
+  notificationId String       @map("notification_id") @db.Uuid
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  channel Channel
+  status  DeliveryStatus @default(PENDING)
+
+  /// Снимок адреса на момент постановки: e-mail или endpoint подписки.
+  /// Именно снимок, а не ссылка, — при разборе «куда ушло письмо» нужен
+  /// адрес того момента, а не текущий.
+  target String
+
+  /// Когда отправлять. Тихие часы сдвигают в конец интервала,
+  /// неудачная попытка — на задержку следующего повтора.
+  scheduledFor DateTime  @default(now()) @map("scheduled_for")
+  attempts     Int       @default(0)
+  lastError    String?   @map("last_error")
+  sentAt       DateTime? @map("sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// Частичная выборка воркера: «что готово к отправке прямо сейчас»
+  @@index([status, scheduledFor])
+  @@index([notificationId])
+  @@map("deliveries")
 }

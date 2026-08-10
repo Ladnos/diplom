@@ -10,6 +10,7 @@ import { HrClient } from './clients/hr.client';
 import { ScheduleClient } from './clients/schedule.client';
 import { ApprovalClient } from './clients/approval.client';
 import { TaskClient } from './clients/task.client';
+import { NotificationClient } from './clients/notification.client';
 import { RedisService } from './cache/redis.service';
 import { JwtAuthGuard } from './auth/auth.guard';
 import { PermissionGuard } from './auth/permission.guard';
@@ -21,6 +22,7 @@ import { ScheduleController } from './http/schedule.controller';
 import { TimesheetController } from './http/timesheet.controller';
 import { RequestsController } from './http/requests.controller';
 import { BoardsController, CardsController } from './http/kanban.controller';
+import { NotificationsController } from './http/notifications.controller';
 
 /**
  * Корневой модуль api-gateway.
@@ -58,6 +60,7 @@ import { BoardsController, CardsController } from './http/kanban.controller';
     RequestsController,
     BoardsController,
     CardsController,
+    NotificationsController,
   ],
   providers: [
     AuthClient,
@@ -66,6 +69,7 @@ import { BoardsController, CardsController } from './http/kanban.controller';
     ScheduleClient,
     ApprovalClient,
     TaskClient,
+    NotificationClient,
     RedisService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionGuard },

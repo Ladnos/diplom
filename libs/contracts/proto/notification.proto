@@ -6,88 +6,144 @@ import "common.proto";
 
 // notification-service :50058
 //
-// В штатном режиме сервис НЕ имеет входящих gRPC-вызовов — он потребляет
-// RabbitMQ и держит локальную копию контактов, наполняемую событиями
-// hr.employee.* (§7.5). Контракт ниже нужен для настроек подписок из UI
-// и для in-app истории; отправка уведомлений идёт только через очередь.
+// В штатном режиме сервис НЕ имеет входящих gRPC-вызовов от других
+// доменных сервисов — он потребляет RabbitMQ и держит локальную копию
+// контактов, наполняемую событиями auth.user.* и hr.employee.* (§7.5).
+// Контракт ниже нужен только api-gateway: настройки подписок из UI,
+// история in-app и регистрация push-подписки браузера. Сама отправка
+// уведомлений инициируется исключительно событием или командой в очереди.
+//
+// ── Почему идентификатор получателя — user_id, а не employee_id ────────────
+// Уведомление умеет существовать раньше кадровой карточки: письмо о
+// регистрации и ссылка на сброс пароля уходят человеку, у которого ещё нет
+// (или уже нет) employee_id. Push-подписка тоже принадлежит логину и
+// браузеру, а не должности. Поэтому хранилище ключуется по user_id, а
+// employee_id из доменных событий переводится в user_id через проекцию
+// контактов. Клиент всегда знает свой user_id — он есть в токене.
 
 service NotificationService {
-  rpc GetPreferences(EmployeeRef) returns (Preferences);
+  rpc GetPreferences(RecipientRef) returns (Preferences);
   rpc UpdatePreferences(UpdatePreferencesCmd) returns (Preferences);
   rpc ListInApp(InAppRequest) returns (InAppList);
-  rpc MarkRead(MarkReadCmd) returns (common.Empty);
+  rpc MarkRead(MarkReadCmd) returns (common.Counter);
+  rpc GetUnreadCount(RecipientRef) returns (common.Counter);
+
   rpc RegisterPushSubscription(PushSubscriptionCmd) returns (common.Empty);
-  rpc GetUnreadCount(EmployeeRef) returns (common.Counter);
+  rpc RemovePushSubscription(RemovePushSubscriptionCmd) returns (common.Empty);
+  // Публичный ключ VAPID нужен браузеру, чтобы вообще создать подписку.
+  // Отдаётся сервисом, а не зашивается в сборку фронтенда: ключ меняется
+  // при развёртывании, и рассинхрон превратил бы push в тихий отказ.
+  rpc GetVapidKey(common.Empty) returns (VapidKey);
 }
 
-message EmployeeRef {
-  string employee_id = 1;
+message RecipientRef {
+  string user_id = 1;
 }
 
-message Preferences {
-  string employee_id = 1;
-  repeated ChannelPreference channels = 2;
-  QuietHours quiet_hours = 3;
+// ── Настройки подписок ──────────────────────────────────────────────────────
+
+enum Channel {
+  CHANNEL_UNSPECIFIED = 0;
+  EMAIL = 1;
+  WEB_PUSH = 2;
+  IN_APP = 3;
 }
 
 message ChannelPreference {
   Channel channel = 1;
-  repeated string enabled_event_types = 2;
+  bool enabled = 2;
 
-  enum Channel {
-    CHANNEL_UNSPECIFIED = 0;
-    EMAIL = 1;
-    WEB_PUSH = 2;
-    IN_APP = 3;
-  }
+  // Список ЗАГЛУШЁННЫХ типов, а не разрешённых. При allow-list каждый
+  // новый тип события молча не доходил бы ни до кого, пока пользователь
+  // не откроет настройки, — отказ, который никто не заметит. Здесь же
+  // умолчание «доставлять», а тишина требует явного действия.
+  repeated string muted_event_types = 3;
 }
 
-// Тихие часы: уведомления откладываются, а не теряются
+// Тихие часы: уведомление откладывается до конца интервала, а не теряется.
+// Срочные (приглашение в звонок, сброс пароля, подозрительный вход) уходят
+// сразу — задержанное приглашение в звонок бесполезно.
 message QuietHours {
   bool enabled = 1;
-  string from = 2;  // HH:MM
-  string to = 3;    // HH:MM
-  string timezone = 4;
+  string from = 2;      // HH:MM в часовом поясе timezone
+  string to = 3;        // HH:MM
+  string timezone = 4;  // IANA, например Europe/Moscow
+}
+
+message Preferences {
+  string user_id = 1;
+  repeated ChannelPreference channels = 2;
+  QuietHours quiet_hours = 3;
+  string email = 4;
+  int32 push_subscriptions = 5;
 }
 
 message UpdatePreferencesCmd {
-  string employee_id = 1;
+  string user_id = 1;
   repeated ChannelPreference channels = 2;
   QuietHours quiet_hours = 3;
+  // Перечисление изменяемых полей: proto3 не отличает «не задано»
+  // от пустого списка каналов и выключенных тихих часов.
+  repeated string update_mask = 4;
+}
+
+// ── In-app история ──────────────────────────────────────────────────────────
+
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  NORMAL = 1;
+  HIGH = 2;
+  URGENT = 3;
 }
 
 message InAppNotification {
   string notification_id = 1;
-  string employee_id = 2;
+  string user_id = 2;
   string event_type = 3;
   string title = 4;
   string body = 5;
   string link = 6;
-  bool read = 7;
-  int64 created_at = 8;
+  Priority priority = 7;
+  bool read = 8;
+  int64 created_at = 9;
+}
+
+message InAppRequest {
+  string user_id = 1;
+  bool only_unread = 2;
+  common.PageRequest page = 3;
 }
 
 message InAppList {
   repeated InAppNotification items = 1;
   common.PageInfo page = 2;
-}
-
-message InAppRequest {
-  string employee_id = 1;
-  bool only_unread = 2;
-  common.PageRequest page = 3;
+  int32 unread = 3;
 }
 
 message MarkReadCmd {
-  string employee_id = 1;
+  string user_id = 1;
   repeated string notification_ids = 2;
   bool all = 3;
 }
 
+// ── Web Push ────────────────────────────────────────────────────────────────
+
 message PushSubscriptionCmd {
-  string employee_id = 1;
+  string user_id = 1;
   string endpoint = 2;
   string p256dh = 3;
   string auth = 4;
   string user_agent = 5;
+}
+
+message RemovePushSubscriptionCmd {
+  string user_id = 1;
+  string endpoint = 2;
+}
+
+message VapidKey {
+  string public_key = 1;
+  // false, если ключи не сконфигурированы: клиенту не нужно предлагать
+  // включить push, который всё равно не отправится.
+  bool enabled = 2;
 }
