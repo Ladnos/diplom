@@ -38,6 +38,7 @@ coverage/
 
 # Claude Code — локальные настройки сессии
 .claude/settings.local.json
+.claude/*.tmp.*
 
 # TLS-сертификаты (генерируются при развёртывании)
 docker/nginx/certs/*
