@@ -15,4 +15,5 @@ export * from './tokens';
 export * from './event-publisher';
 export * from './messaging.module';
 export * from './idempotency';
+export * from './outbox';
 export * from './consumer';

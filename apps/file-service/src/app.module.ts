@@ -15,7 +15,7 @@ import { PrismaModule } from './prisma/prisma.module';
 @Module({
   imports: [
     HealthModule,
-    MessagingModule.forRoot(),
+    MessagingModule.forRoot({ outbox: true }),
     PrismaModule,
     GrpcClientsModule.register([SERVICES.AUTH]),
   ],

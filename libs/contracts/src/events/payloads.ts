@@ -67,8 +67,13 @@ export interface EmployeeCreated {
   employeeId: string;
   userId: string;
   fullName: string;
-  departmentId: string;
-  position: string;
+  /**
+   * Отсутствующие ссылки передаются как undefined, а НЕ пустой строкой.
+   * Потребители кладут их в колонки типа UUID, и '' там вызывает ошибку
+   * приведения типа — сообщение уходит в DLQ, а проекция молча отстаёт.
+   */
+  departmentId?: string;
+  position?: string;
   managerId?: string;
   employment: EmploymentSnapshot;
 }

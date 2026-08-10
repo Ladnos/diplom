@@ -4,20 +4,23 @@ import { MessagingModule } from '@crm/messaging';
 import { GrpcClientsModule } from '@crm/grpc-clients';
 import { SERVICES } from '@crm/contracts';
 import { PrismaModule } from './prisma/prisma.module';
+import { AuthModule } from './auth/auth.module';
 
 /**
  * Корневой модуль auth-service.
  *
- * Пока подключена только инфраструктура: health, обмен сообщениями,
- * доступ к БД и gRPC-клиенты к сервисам, которые нужны по §6.3.
- * Доменные модули добавляются сюда по мере реализации.
+ * Точка безопасности системы: выдаёт токены и отвечает на вопрос
+ * «можно ли этому пользователю сделать это с этим объектом».
+ * Оргструктуру держит в собственной проекции, наполняемой событиями
+ * hr.* — чтобы проверка прав не зависела от доступности hr-service.
  */
 @Module({
   imports: [
     HealthModule,
-    MessagingModule.forRoot(),
+    MessagingModule.forRoot({ outbox: true }),
     PrismaModule,
     GrpcClientsModule.register([SERVICES.HR]),
+    AuthModule,
   ],
 })
 export class AppModule {}

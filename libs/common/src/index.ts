@@ -11,5 +11,6 @@ export * from './config/env';
 export * from './logging/logger';
 export * from './health/health.module';
 export * from './tracing/correlation';
+export * from './http/public.decorator';
 export * from './messaging/assert-topology';
 export * from './bootstrap/bootstrap';

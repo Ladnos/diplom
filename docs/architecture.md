@@ -976,7 +976,7 @@ video.call.ended
 | Очередь | Потребитель | Bindings в `crm.events` | Bindings в `crm.commands` | prefetch |
 |---|---|---|---|---|
 | `gateway.realtime.{instance}` | api-gateway (каждый инстанс) | `task.#`, `chat.#`, `video.#`, `approval.#`, `hr.timesheet.#` | — | 100 |
-| `auth.events` | auth-service | `hr.hierarchy.changed`, `hr.employee.deactivated`, `approval.delegation.set` | — | 10 |
+| `auth.events` | auth-service | `hr.employee.#`, `hr.hierarchy.changed`, `approval.delegation.set` | — | 10 |
 | `hr.events` | hr-service | `auth.user.registered`, `approval.request.approved` | `timesheet.recalculate` | 10 |
 | `approval.events` | approval-service | `hr.absence.registered`, `hr.absence.registration_failed`, `hr.timesheet.#`, `hr.hierarchy.changed`, `hr.employment.changed`, `hr.employee.deactivated` | — | 10 |
 | `task.events` | task-service | `hr.employee.#`, `hr.absence.registered` | — | 10 |

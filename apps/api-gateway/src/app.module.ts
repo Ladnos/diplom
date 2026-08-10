@@ -1,19 +1,28 @@
 import { Module } from '@nestjs/common';
-import { HealthModule } from '@crm/common';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { HEALTH_INDICATORS, HealthModule, type HealthIndicator } from '@crm/common';
 import { MessagingModule } from '@crm/messaging';
 import { GrpcClientsModule } from '@crm/grpc-clients';
 import { SERVICES } from '@crm/contracts';
+import { AuthClient } from './clients/auth.client';
+import { HrClient } from './clients/hr.client';
+import { RedisService } from './cache/redis.service';
+import { JwtAuthGuard } from './auth/auth.guard';
+import { PermissionGuard } from './auth/permission.guard';
+import { GrpcExceptionFilter } from './http/grpc-exception.filter';
+import { AuthController } from './http/auth.controller';
+import { EmployeesController } from './http/employees.controller';
 
 /**
  * Корневой модуль api-gateway.
  *
- * Gateway — единственный сервис без собственной БД: всё состояние живёт
- * в Redis (сессии, карта «пользователь → инстанс» для WebSocket).
- * Зато он единственный, кто держит gRPC-клиентов ко всем доменным
- * сервисам — это и есть BFF-агрегация из ADR-3, часть 3.
+ * Единственный сервис без собственной БД: всё состояние в Redis.
+ * Держит gRPC-клиентов ко всем доменным сервисам и собирает из них
+ * ответы для клиента — это и есть BFF-агрегация из ADR-3, часть 3.
  *
- * Доменные модули (auth-proxy, boards, chat, calls, dashboard) появятся
- * здесь по мере реализации.
+ * Порядок guard'ов важен: JwtAuthGuard заполняет request.user, на
+ * который опирается PermissionGuard. Nest применяет глобальные guard'ы
+ * в порядке регистрации.
  */
 @Module({
   imports: [
@@ -30,6 +39,22 @@ import { SERVICES } from '@crm/contracts';
       SERVICES.NOTIFICATION,
       SERVICES.ANALYTICS,
     ]),
+  ],
+  controllers: [AuthController, EmployeesController],
+  providers: [
+    AuthClient,
+    HrClient,
+    RedisService,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: PermissionGuard },
+    { provide: APP_FILTER, useClass: GrpcExceptionFilter },
+    {
+      // Доступность Redis попадает в readiness: без кэша gateway
+      // работает, но деградировавшим — это должно быть видно снаружи.
+      provide: HEALTH_INDICATORS,
+      useFactory: (redis: RedisService): HealthIndicator[] => [redis],
+      inject: [RedisService],
+    },
   ],
 })
 export class AppModule {}

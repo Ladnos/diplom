@@ -1,5 +1,6 @@
 import { Controller, Get, Inject, Injectable, Module, Optional } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
+import { Public } from '../http/public.decorator';
 
 /**
  * Health-проверки сервиса.
@@ -55,6 +56,8 @@ export class HealthService {
   }
 }
 
+// Пробы обязаны отвечать без токена: их вызывает Docker, а не пользователь
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(private readonly health: HealthService) {}

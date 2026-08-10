@@ -98,7 +98,17 @@ export const QUEUE_DEFINITIONS: QueueDefinition[] = [
     bindings: [
       {
         exchange: Exchanges.EVENTS,
-        patterns: ['hr.hierarchy.changed', 'hr.employee.deactivated', 'approval.delegation.set'],
+        patterns: [
+          // hr.employee.# — не только deactivated: по hr.employee.created
+          // auth связывает учётную запись с сотрудником (проставляет
+          // employeeId), а по updated поддерживает проекцию отдела.
+          // Без created пользователь навсегда остаётся без положения в
+          // оргструктуре, и все проверки со scope, кроме GLOBAL, для него
+          // не проходят.
+          'hr.employee.#',
+          'hr.hierarchy.changed',
+          'approval.delegation.set',
+        ],
       },
     ],
   },

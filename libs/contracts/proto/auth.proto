@@ -9,6 +9,7 @@ import "common.proto";
 // docs/architecture.md §6.2
 
 service AuthService {
+  rpc Register(RegisterRequest) returns (RegisterResult);
   rpc Login(LoginRequest) returns (TokenPair);
   rpc RefreshToken(RefreshRequest) returns (TokenPair);
   rpc ValidateToken(ValidateTokenRequest) returns (TokenClaims);
@@ -16,6 +17,19 @@ service AuthService {
   rpc CheckPermissionsBatch(BatchPermissionRequest) returns (BatchPermissionResult);
   rpc RevokeSession(RevokeRequest) returns (common.Empty);
   rpc RevokeAllSessions(RevokeAllRequest) returns (common.Empty);
+}
+
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+  // ФИО не хранится в auth_db: оно едет в событии auth.user.registered,
+  // чтобы hr-service мог сразу создать заготовку профиля. Мастер-данные
+  // о персонале принадлежат hr-service, а не сервису аутентификации.
+  string full_name = 3;
+}
+
+message RegisterResult {
+  string user_id = 1;
 }
 
 message LoginRequest {

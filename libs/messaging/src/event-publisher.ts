@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import {
   CURRENT_EVENT_VERSION,
   CommandType,
+  Commands,
   Envelope,
   EventType,
   PayloadOf,
@@ -11,6 +12,13 @@ import {
 } from '@crm/contracts';
 import { getRequestContext } from '@crm/common';
 import { EVENTS_CLIENT, COMMANDS_CLIENT } from './tokens';
+
+/**
+ * Команды и события живут в разных обменниках, а конверт из outbox несёт
+ * только строку типа. Различаем по каталогу: имена команд перечислимы и
+ * их немного, тогда как события добавляются постоянно.
+ */
+const COMMAND_TYPES = new Set<string>(Object.values(Commands));
 
 /**
  * Публикация событий и команд в RabbitMQ.
@@ -65,7 +73,20 @@ export class EventPublisher {
     });
   }
 
-  /** Сборка конверта. Публичный метод: им же пользуется OutboxWorker. */
+  /**
+   * Публикация уже собранного конверта.
+   *
+   * Используется OutboxWorker: конверт был создан и сохранён в БД раньше,
+   * в момент доменной операции, и пересобирать его нельзя — потерялись бы
+   * исходные eventId, occurredAt и correlationId, а с ними дедупликация
+   * на стороне потребителя и связность логов.
+   */
+  publishEnvelope(envelope: Envelope): void {
+    const client = COMMAND_TYPES.has(envelope.eventType) ? this.commands : this.events;
+    client.emit(envelope.eventType, envelope);
+  }
+
+  /** Сборка конверта. Публичный метод: им же пользуется outbox. */
   wrap<TPayload>(
     eventType: EventType,
     payload: TPayload,

@@ -1,8 +1,9 @@
 import { Global, Module } from '@nestjs/common';
 import { HEALTH_INDICATORS, type HealthIndicator } from '@crm/common';
-import { PROCESSED_EVENT_STORE } from '@crm/messaging';
+import { OUTBOX_STORE, PROCESSED_EVENT_STORE } from '@crm/messaging';
 import { PrismaService } from './prisma.service';
 import { PrismaProcessedEventStore } from './processed-event.store';
+import { PrismaOutboxStore } from './outbox.store';
 import { PrismaHealthIndicator } from './prisma-health.indicator';
 
 /**
@@ -16,7 +17,9 @@ import { PrismaHealthIndicator } from './prisma-health.indicator';
   providers: [
     PrismaService,
     PrismaHealthIndicator,
+    PrismaOutboxStore,
     { provide: PROCESSED_EVENT_STORE, useClass: PrismaProcessedEventStore },
+    { provide: OUTBOX_STORE, useExisting: PrismaOutboxStore },
     {
       // Подмешивает проверку БД в readiness-пробу /health/ready
       provide: HEALTH_INDICATORS,
@@ -24,6 +27,6 @@ import { PrismaHealthIndicator } from './prisma-health.indicator';
       inject: [PrismaHealthIndicator],
     },
   ],
-  exports: [PrismaService, PROCESSED_EVENT_STORE, HEALTH_INDICATORS],
+  exports: [PrismaService, PrismaOutboxStore, PROCESSED_EVENT_STORE, OUTBOX_STORE, HEALTH_INDICATORS],
 })
 export class PrismaModule {}
