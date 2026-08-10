@@ -1,0 +1,37 @@
+{
+  "name": "@crm/chat-service",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "start:dev": "nest start --watch",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio",
+    "test": "echo \"тесты появятся вместе с доменной логикой\" && exit 0"
+  },
+  "dependencies": {
+    "@crm/common": "*",
+    "@crm/contracts": "*",
+    "@crm/grpc-clients": "*",
+    "@crm/messaging": "*",
+    "@grpc/grpc-js": "^1.12.4",
+    "@grpc/proto-loader": "^0.7.13",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/microservices": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "ioredis": "^5.4.2",
+    "@prisma/client": "^6.1.0",
+    "amqp-connection-manager": "^4.1.14",
+    "amqplib": "^0.10.5",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  }
+  ,"devDependencies": { "prisma": "^6.1.0" }
+}

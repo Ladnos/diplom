@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package notification;
+
+import "common.proto";
+
+// notification-service :50058
+//
+// В штатном режиме сервис НЕ имеет входящих gRPC-вызовов — он потребляет
+// RabbitMQ и держит локальную копию контактов, наполняемую событиями
+// hr.employee.* (§7.5). Контракт ниже нужен для настроек подписок из UI
+// и для in-app истории; отправка уведомлений идёт только через очередь.
+
+service NotificationService {
+  rpc GetPreferences(EmployeeRef) returns (Preferences);
+  rpc UpdatePreferences(UpdatePreferencesCmd) returns (Preferences);
+  rpc ListInApp(InAppRequest) returns (InAppList);
+  rpc MarkRead(MarkReadCmd) returns (common.Empty);
+  rpc RegisterPushSubscription(PushSubscriptionCmd) returns (common.Empty);
+  rpc GetUnreadCount(EmployeeRef) returns (common.Counter);
+}
+
+message EmployeeRef {
+  string employee_id = 1;
+}
+
+message Preferences {
+  string employee_id = 1;
+  repeated ChannelPreference channels = 2;
+  QuietHours quiet_hours = 3;
+}
+
+message ChannelPreference {
+  Channel channel = 1;
+  repeated string enabled_event_types = 2;
+
+  enum Channel {
+    CHANNEL_UNSPECIFIED = 0;
+    EMAIL = 1;
+    WEB_PUSH = 2;
+    IN_APP = 3;
+  }
+}
+
+// Тихие часы: уведомления откладываются, а не теряются
+message QuietHours {
+  bool enabled = 1;
+  string from = 2;  // HH:MM
+  string to = 3;    // HH:MM
+  string timezone = 4;
+}
+
+message UpdatePreferencesCmd {
+  string employee_id = 1;
+  repeated ChannelPreference channels = 2;
+  QuietHours quiet_hours = 3;
+}
+
+message InAppNotification {
+  string notification_id = 1;
+  string employee_id = 2;
+  string event_type = 3;
+  string title = 4;
+  string body = 5;
+  string link = 6;
+  bool read = 7;
+  int64 created_at = 8;
+}
+
+message InAppList {
+  repeated InAppNotification items = 1;
+  common.PageInfo page = 2;
+}
+
+message InAppRequest {
+  string employee_id = 1;
+  bool only_unread = 2;
+  common.PageRequest page = 3;
+}
+
+message MarkReadCmd {
+  string employee_id = 1;
+  repeated string notification_ids = 2;
+  bool all = 3;
+}
+
+message PushSubscriptionCmd {
+  string employee_id = 1;
+  string endpoint = 2;
+  string p256dh = 3;
+  string auth = 4;
+  string user_agent = 5;
+}

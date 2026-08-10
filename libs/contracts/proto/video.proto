@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package video;
+
+import "common.proto";
+
+// video-service :50056 (gRPC) + :3006 (WebSocket-сигналинг)
+//
+// Через этот контракт идёт только УПРАВЛЕНИЕ. Сигналинг — прямое WSS,
+// медиапоток — DTLS-SRTP клиент ↔ mediasoup SFU, минуя NestJS (§8.3).
+
+service VideoService {
+  rpc CreateRoom(CreateRoomRequest) returns (Room);
+  rpc GetRoom(RoomRequest) returns (Room);
+  rpc IssueJoinToken(JoinRequest) returns (JoinToken);
+  rpc SetParticipantRights(RightsRequest) returns (common.Empty);
+  rpc StartRecording(RoomRequest) returns (common.Empty);
+  rpc StopRecording(RoomRequest) returns (common.Empty);
+  rpc EndRoom(RoomRequest) returns (common.Empty);
+  rpc ListActiveRooms(ActiveRoomsRequest) returns (RoomList);
+}
+
+message Room {
+  string room_id = 1;
+  string title = 2;
+  string initiator_employee_id = 3;
+  string channel_id = 4;  // если звонок начат из канала чата
+  repeated Participant participants = 5;
+  RoomStatus status = 6;
+  bool recording = 7;
+  int64 started_at = 8;
+  int64 ended_at = 9;
+
+  enum RoomStatus {
+    ROOM_STATUS_UNSPECIFIED = 0;
+    CREATED = 1;
+    ACTIVE = 2;
+    ENDED = 3;
+  }
+}
+
+message RoomList {
+  repeated Room rooms = 1;
+}
+
+message Participant {
+  string employee_id = 1;
+  bool is_moderator = 2;
+  bool audio_enabled = 3;
+  bool video_enabled = 4;
+  int64 joined_at = 5;
+  int64 left_at = 6;
+}
+
+message CreateRoomRequest {
+  string title = 1;
+  string initiator_employee_id = 2;
+  repeated string invited_employee_ids = 3;
+  string channel_id = 4;
+  string card_id = 5;  // привязка к карточке Kanban
+}
+
+message RoomRequest {
+  string room_id = 1;
+  string actor_employee_id = 2;
+}
+
+message JoinRequest {
+  string room_id = 1;
+  string employee_id = 2;
+}
+
+message JoinToken {
+  string token = 1;        // подписанный токен для WSS-сигналинга
+  string signaling_url = 2;
+  string sfu_url = 3;
+  repeated IceServer ice_servers = 4;
+  int64 expires_at = 5;
+}
+
+message IceServer {
+  string urls = 1;
+  string username = 2;
+  string credential = 3;
+}
+
+message RightsRequest {
+  string room_id = 1;
+  string target_employee_id = 2;
+  string actor_employee_id = 3;
+  Action action = 4;
+
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    MUTE = 1;
+    UNMUTE = 2;
+    KICK = 3;
+    GRANT_MODERATOR = 4;
+  }
+}
+
+message ActiveRoomsRequest {
+  repeated string employee_ids = 1;
+}

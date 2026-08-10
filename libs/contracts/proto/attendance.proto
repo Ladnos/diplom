@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package attendance;
+
+import "common.proto";
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  КОНТРАКТ ОБЪЯВЛЕН, НО НЕ РЕАЛИЗОВАН — ЭТО ЗАДЕЛ, А НЕ МЁРТВЫЙ КОД.      ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+//
+// docs/architecture.md §3.4, ADR-2.
+//
+// Фактический учёт прихода/ухода не ведётся: при окладной форме оплаты по
+// трудовому договору фактическое время не влияет ни на одно решение — ни на
+// зарплату, ни на табель, ни на отчётность. Табель рассчитывается как
+//   норма по графику − отсутствия + согласованные переработки
+// и все три слагаемых уже принадлежат hr-service.
+//
+// Сервис понадобится, когда появятся сотрудники с политикой FACT_BASED
+// (трудовой договор + почасовая оплата). Контракт зафиксирован ЗАРАНЕЕ,
+// пока нет соблазна размыть границу, и документирует намерение для
+// контрибьюторов.
+//
+// Что зарезервировано под этот сервис и не занято ничем другим:
+//   • порт            50060
+//   • база данных     attendance_db
+//   • очередь         attendance.events
+//   • routing key     attendance.*
+//   • реализация      apps/hr-service/src/timesheet/sources/tracked-time.source.ts
+//                     (сегодня выбрасывает UnimplementedException)
+//
+// Чего здесь намеренно НЕТ: контейнера, схемы БД, подписок на события и
+// строки в docker-compose. Задел — это зафиксированная граница и пустая
+// реализация интерфейса, а не каркас, который придётся поддерживать,
+// не получая от него пользы.
+
+service AttendanceService {
+  rpc CheckIn(CheckInRequest) returns (AttendanceRecord);
+  rpc CheckOut(CheckOutRequest) returns (AttendanceRecord);
+  // Точка стыковки с hr-service: TimesheetService выберет реализацию
+  // TrackedTimeSource вместо PlannedTimeSource по политике сотрудника,
+  // и записи табеля получат source = FACT. Формат ответа TimesheetEntry
+  // уже это предусматривает — версионировать контракт не потребуется.
+  rpc GetWorkedTime(WorkedTimeRequest) returns (WorkedTimeList);
+  rpc ApplyCorrection(CorrectionRequest) returns (AttendanceRecord);
+}
+
+message AttendanceRecord {
+  string record_id = 1;
+  string employee_id = 2;
+  string date = 3;
+  int64 checked_in_at = 4;
+  int64 checked_out_at = 5;
+  int32 worked_minutes = 6;
+  int32 deviation_minutes = 7;  // отклонение от плановой смены
+  string source_device = 8;
+}
+
+message CheckInRequest {
+  string employee_id = 1;
+  int64 timestamp = 2;
+  string device_id = 3;
+}
+
+message CheckOutRequest {
+  string employee_id = 1;
+  int64 timestamp = 2;
+  string device_id = 3;
+}
+
+message WorkedTimeRequest {
+  repeated string employee_ids = 1;
+  common.DatePeriod period = 2;
+}
+
+message WorkedTime {
+  string employee_id = 1;
+  string date = 2;
+  int32 worked_minutes = 3;
+}
+
+message WorkedTimeList {
+  repeated WorkedTime items = 1;
+}
+
+message CorrectionRequest {
+  string employee_id = 1;
+  string date = 2;
+  int32 worked_minutes = 3;
+  string request_id = 4;
+  string reason = 5;
+}

@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package auth;
+
+import "common.proto";
+
+// auth-service :50051
+// Аутентификация, JWT, RBAC и scope-проверки «руководитель ↔ подчинённый».
+// docs/architecture.md §6.2
+
+service AuthService {
+  rpc Login(LoginRequest) returns (TokenPair);
+  rpc RefreshToken(RefreshRequest) returns (TokenPair);
+  rpc ValidateToken(ValidateTokenRequest) returns (TokenClaims);
+  rpc CheckPermission(CheckPermissionRequest) returns (PermissionResult);
+  rpc CheckPermissionsBatch(BatchPermissionRequest) returns (BatchPermissionResult);
+  rpc RevokeSession(RevokeRequest) returns (common.Empty);
+  rpc RevokeAllSessions(RevokeAllRequest) returns (common.Empty);
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+  string user_agent = 3;
+  string ip = 4;
+}
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message TokenPair {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 access_expires_at = 3;
+  int64 refresh_expires_at = 4;
+}
+
+message ValidateTokenRequest {
+  string access_token = 1;
+}
+
+message TokenClaims {
+  string user_id = 1;
+  string employee_id = 2;
+  repeated string roles = 3;
+  // Есть хотя бы один подчинённый. Вычисляется из денормализованного дерева
+  // подчинения, которое auth поддерживает по событию hr.hierarchy.changed.
+  bool is_manager = 4;
+  int64 expires_at = 5;
+}
+
+// Область действия права. Именно owner_id превращает роль «руководитель»
+// в проверку «руководитель ЭТОГО сотрудника» (ADR-3, часть 2).
+message CheckPermissionRequest {
+  string user_id = 1;
+  string resource = 2;    // "board" | "shift" | "vacation_request" | "channel" | "file"
+  string action = 3;      // "read" | "write" | "approve" | "delete"
+  string resource_id = 4;
+  string owner_id = 5;    // чей это ресурс (employee_id владельца)
+}
+
+message PermissionResult {
+  bool allowed = 1;
+  string reason = 2;
+  Scope scope = 3;
+
+  enum Scope {
+    SCOPE_UNSPECIFIED = 0;
+    SELF = 1;
+    SUBORDINATE = 2;
+    DEPARTMENT = 3;
+    GLOBAL = 4;
+  }
+}
+
+message BatchPermissionRequest {
+  repeated CheckPermissionRequest requests = 1;
+}
+
+message BatchPermissionResult {
+  repeated PermissionResult results = 1;
+}
+
+message RevokeRequest {
+  string session_id = 1;
+}
+
+message RevokeAllRequest {
+  string user_id = 1;
+  string reason = 2;
+}

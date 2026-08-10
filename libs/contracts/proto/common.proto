@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package common;
+
+// Общие сообщения, переиспользуемые всеми сервисами.
+// Держим их отдельно, чтобы не плодить дубли Empty/Ids в каждом контракте.
+
+message Empty {}
+
+message Ids {
+  repeated string ids = 1;
+}
+
+message BoolResult {
+  bool value = 1;
+  string reason = 2;
+}
+
+message Counter {
+  int32 value = 1;
+}
+
+// Период дат в формате ISO-8601 (YYYY-MM-DD). Строки, а не timestamp:
+// табель и графики оперируют календарными датами, а не моментами времени,
+// и перевод в UTC на границе сервисов терял бы день на краях часовых поясов.
+message DatePeriod {
+  string from = 1;
+  string to = 2;
+}
+
+// Ссылка на файл в file-service
+message FileRef {
+  string file_id = 1;
+  string filename = 2;
+  int64 size_bytes = 3;
+  string mime_type = 4;
+}
+
+message PageRequest {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message PageInfo {
+  string next_cursor = 1;
+  bool has_more = 2;
+}
+
+// Кто инициировал действие — прокидывается в события для аудита
+message Actor {
+  string user_id = 1;
+  string employee_id = 2;
+}

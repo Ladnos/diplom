@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package file;
+
+import "common.proto";
+
+// file-service :50057 (gRPC) + :3008 (HTTP-приём загрузок)
+//
+// Presigned URL отсутствуют намеренно (ADR-4): хранилище локальное.
+// Приватные файлы отдаются через nginx X-Accel-Redirect с проверкой прав,
+// полупубличные — по HMAC-ссылке, которую проверяет сам nginx secure_link.
+
+service FileService {
+  rpc GetFileMeta(FileId) returns (FileMeta);
+  rpc GetFilesBatch(common.Ids) returns (FileMetaList);
+  rpc IssueSignedLink(SignedLinkRequest) returns (SignedLink);
+  rpc AttachToEntity(AttachRequest) returns (FileMeta);
+  rpc DetachFromEntity(AttachRequest) returns (common.Empty);
+  rpc GetQuotaUsage(OwnerRequest) returns (QuotaUsage);
+  rpc DeleteFile(FileId) returns (common.Empty);
+}
+
+message FileMeta {
+  string file_id = 1;
+  string filename = 2;
+  // Контентная адресация: путь на диске выводится из хэша, а дубликаты
+  // одного содержимого хранятся один раз (§9.1).
+  string sha256 = 3;
+  int64 size_bytes = 4;
+  string mime_type = 5;
+  string owner_employee_id = 6;
+  Visibility visibility = 7;
+  int32 refcount = 8;
+  bool has_thumbnail = 9;
+  int64 created_at = 10;
+
+  enum Visibility {
+    VISIBILITY_UNSPECIFIED = 0;
+    PRIVATE = 1;      // X-Accel-Redirect + CheckPermission на каждый запрос
+    SEMI_PUBLIC = 2;  // secure_link с TTL: аватары, превью
+  }
+}
+
+message FileMetaList {
+  repeated FileMeta files = 1;
+}
+
+message FileId {
+  string file_id = 1;
+  string actor_employee_id = 2;
+}
+
+message SignedLinkRequest {
+  string file_id = 1;
+  string actor_employee_id = 2;
+  int32 ttl_seconds = 3;
+  bool thumbnail = 4;
+}
+
+message SignedLink {
+  string url = 1;
+  int64 expires_at = 2;
+}
+
+message AttachRequest {
+  string file_id = 1;
+  EntityType entity_type = 2;
+  string entity_id = 3;
+
+  enum EntityType {
+    ENTITY_TYPE_UNSPECIFIED = 0;
+    CHAT_MESSAGE = 1;
+    TASK_CARD = 2;
+    CALL_RECORDING = 3;
+    EMPLOYEE_AVATAR = 4;
+    TIMESHEET_EXPORT = 5;
+  }
+}
+
+message OwnerRequest {
+  string owner_employee_id = 1;
+}
+
+message QuotaUsage {
+  int64 used_bytes = 1;
+  int64 limit_bytes = 2;
+  int32 file_count = 3;
+}

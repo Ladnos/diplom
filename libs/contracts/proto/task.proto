@@ -1,0 +1,140 @@
+syntax = "proto3";
+
+package task;
+
+import "common.proto";
+
+// task-service :50054 — Kanban
+
+service TaskService {
+  rpc GetBoard(BoardRequest) returns (Board);
+  rpc ListBoards(MemberRequest) returns (BoardList);
+  rpc CreateBoard(CreateBoardCmd) returns (Board);
+  rpc GetCard(CardRequest) returns (Card);
+  rpc CreateCard(CreateCardCmd) returns (Card);
+  rpc MoveCard(MoveCardRequest) returns (Card);
+  rpc AssignCard(AssignCardCmd) returns (Card);
+  rpc CloseCard(CardRequest) returns (Card);
+  rpc GetCardsByAssignee(AssigneeRequest) returns (CardList);
+  rpc GetTeamWorkload(TeamRequest) returns (WorkloadReport);
+  // Основа акта выполненных работ для политики DELIVERABLE_BASED (§3.2)
+  rpc GetClosedInPeriod(ClosedInPeriodRequest) returns (CardList);
+  rpc GetBoardMembers(BoardRequest) returns (MemberList);
+}
+
+message Board {
+  string board_id = 1;
+  string name = 2;
+  string department_id = 3;
+  repeated Column columns = 4;
+  int64 created_at = 5;
+}
+
+message BoardList {
+  repeated Board boards = 1;
+}
+
+message Column {
+  string column_id = 1;
+  string name = 2;
+  int32 position = 3;
+  int32 wip_limit = 4;  // 0 — без ограничения
+  bool is_done_column = 5;
+}
+
+message Card {
+  string card_id = 1;
+  string board_id = 2;
+  string column_id = 3;
+  string title = 4;
+  string description = 5;
+  string assignee_employee_id = 6;
+  string author_employee_id = 7;
+  double position = 8;  // дробная позиция: вставка между карточками без перенумерации
+  repeated string label_ids = 9;
+  repeated string attachment_file_ids = 10;
+  string due_date = 11;
+  int32 estimate_minutes = 12;
+  // Оптимистическая версия. Потребители событий игнорируют сообщения
+  // с версией ниже уже применённой (§7.7, нарушение порядка).
+  int64 version = 13;
+  int64 created_at = 14;
+  int64 closed_at = 15;
+}
+
+message CardList {
+  repeated Card cards = 1;
+  common.PageInfo page = 2;
+}
+
+message BoardRequest {
+  string board_id = 1;
+}
+
+message CardRequest {
+  string card_id = 1;
+}
+
+message MemberRequest {
+  string employee_id = 1;
+}
+
+message AssigneeRequest {
+  string assignee_employee_id = 1;
+  bool only_open = 2;
+  common.PageRequest page = 3;
+}
+
+message TeamRequest {
+  string manager_employee_id = 1;
+}
+
+message ClosedInPeriodRequest {
+  repeated string employee_ids = 1;
+  common.DatePeriod period = 2;
+}
+
+message CreateBoardCmd {
+  string name = 1;
+  string department_id = 2;
+  string author_employee_id = 3;
+}
+
+message CreateCardCmd {
+  string board_id = 1;
+  string column_id = 2;
+  string title = 3;
+  string description = 4;
+  string author_employee_id = 5;
+  string assignee_employee_id = 6;
+  string due_date = 7;
+}
+
+message MoveCardRequest {
+  string card_id = 1;
+  string to_column_id = 2;
+  double position = 3;
+  string actor_employee_id = 4;
+  int64 expected_version = 5;
+}
+
+message AssignCardCmd {
+  string card_id = 1;
+  string assignee_employee_id = 2;
+  string actor_employee_id = 3;
+}
+
+message MemberList {
+  repeated string employee_ids = 1;
+}
+
+message WorkloadReport {
+  repeated EmployeeWorkload items = 1;
+}
+
+message EmployeeWorkload {
+  string employee_id = 1;
+  int32 open_cards = 2;
+  int32 overdue_cards = 3;
+  int32 estimate_minutes = 4;
+}

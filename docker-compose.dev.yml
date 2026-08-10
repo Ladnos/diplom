@@ -1,0 +1,146 @@
+# ════════════════════════════════════════════════════════════════════════════
+#  Оверрайд для разработки.
+#
+#      docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+#  или короче, задав один раз в оболочке:
+#      export COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+#
+#  Что меняет:
+#    • подключает контейнеры к дополнительной сети crm-devaccess и публикует
+#      их порты на 127.0.0.1 — для отладчика, psql, grpcurl и миграций;
+#    • переводит логи в человекочитаемый формат и уровень debug;
+#    • поднимает mailhog и открывает management UI RabbitMQ.
+#
+#  ── Почему нужна отдельная сеть ────────────────────────────────────────────
+#  В основном компоузе crm-internal и crm-data объявлены `internal: true`.
+#  Docker НЕ публикует порты контейнера, подключённого только к внутренним
+#  сетям: publish молча игнорируется, `docker port` показывает пусто, а
+#  попытка подключиться с хоста уходит в никуда (или, что хуже, в чужой
+#  сервис, слушающий тот же порт). Поэтому здесь добавляется обычная
+#  bridge-сеть, а не снимается флаг internal — так продакшен-изоляция
+#  остаётся нетронутой и сети не приходится пересоздавать.
+#
+#  ВНИМАНИЕ: файл НЕ предназначен для продакшена.
+# ════════════════════════════════════════════════════════════════════════════
+
+services:
+
+  # Порты намеренно нестандартные: на машине разработчика штатные 5432 и
+  # 6379 часто заняты локально установленными PostgreSQL и Redis, и тогда
+  # psql/prisma молча подключаются не к тому серверу — ошибка выглядит как
+  # «неверный пароль», хотя дело в чужой СУБД на том же порту.
+  postgres:
+    networks: [crm-data, crm-devaccess]
+    ports:
+      - "127.0.0.1:15432:5432"
+
+  redis:
+    networks: [crm-data, crm-devaccess]
+    ports:
+      - "127.0.0.1:16379:6379"
+
+  rabbitmq:
+    networks: [crm-data, crm-devaccess]
+    ports:
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+
+  api-gateway:
+    networks: [crm-public, crm-internal, crm-data, crm-devaccess]
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  auth-service:
+    networks: [crm-internal, crm-data, crm-devaccess]
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "127.0.0.1:3001:3001"
+      - "127.0.0.1:50051:50051"
+
+  hr-service:
+    networks: [crm-internal, crm-data, crm-devaccess]
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "127.0.0.1:3002:3002"
+      - "127.0.0.1:50052:50052"
+
+  approval-service:
+    networks: [crm-internal, crm-data, crm-devaccess]
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "127.0.0.1:3003:3003"
+      - "127.0.0.1:50053:50053"
+
+  task-service:
+    networks: [crm-internal, crm-data, crm-devaccess]
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "127.0.0.1:3004:3004"
+      - "127.0.0.1:50054:50054"
+
+  chat-service:
+    networks: [crm-internal, crm-data, crm-devaccess]
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "127.0.0.1:3005:3005"
+      - "127.0.0.1:50055:50055"
+
+  video-service:
+    networks: [crm-internal, crm-data, crm-media, crm-devaccess]
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "127.0.0.1:3006:3006"
+      - "127.0.0.1:50056:50056"
+
+  file-service:
+    networks: [crm-internal, crm-data, crm-devaccess]
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "127.0.0.1:3008:3008"
+      - "127.0.0.1:50057:50057"
+
+  notification-service:
+    networks: [crm-internal, crm-data, crm-public, crm-devaccess]
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+    ports:
+      - "127.0.0.1:3009:3009"
+      - "127.0.0.1:50058:50058"
+
+  analytics-service:
+    networks: [crm-internal, crm-data, crm-devaccess]
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "127.0.0.1:3010:3010"
+      - "127.0.0.1:50059:50059"
+
+  mailhog:
+    # Снимаем профиль dev: в этом оверрайде mailhog нужен всегда
+    profiles: []
+    networks: [crm-data, crm-devaccess]
+
+networks:
+  crm-devaccess:
+    driver: bridge

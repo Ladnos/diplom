@@ -1,0 +1,44 @@
+# Зависимости
+node_modules/
+.npm/
+
+# Сборка
+dist/
+build/
+*.tsbuildinfo
+
+# Prisma: сгенерированный клиент (создаётся из schema.prisma)
+**/node_modules/.prisma/
+**/generated/prisma/
+
+# Окружение — .env.example коммитится, .env нет
+.env
+.env.local
+.env.*.local
+
+# Локальные данные Docker-томов (если смонтированы в проект)
+/data/
+docker/volumes/
+
+# Логи
+logs/
+*.log
+npm-debug.log*
+
+# Редакторы и ОС
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.swp
+
+# Тесты
+coverage/
+.nyc_output/
+
+# Claude Code — локальные настройки сессии
+.claude/settings.local.json
+
+# TLS-сертификаты (генерируются при развёртывании)
+docker/nginx/certs/*
+!docker/nginx/certs/.gitkeep

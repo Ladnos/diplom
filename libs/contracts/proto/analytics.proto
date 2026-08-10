@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package analytics;
+
+import "common.proto";
+
+// analytics-service :50059
+//
+// Read-модели CQRS: основной поток данных приходит событиями (binding `#`),
+// gRPC используется только для чтения готовых витрин и запуска выгрузок.
+// Долгие отчёты запускаются командой report.generate через RabbitMQ,
+// результат приходит событием analytics.report.ready.
+
+service AnalyticsService {
+  rpc GetTimeUtilization(TeamPeriodRequest) returns (TimeUtilizationReport);
+  rpc GetTaskFlowMetrics(BoardPeriodRequest) returns (TaskFlowReport);
+  rpc GetMeetingStats(TeamPeriodRequest) returns (MeetingStatsReport);
+  rpc GetApprovalStats(TeamPeriodRequest) returns (ApprovalStatsReport);
+  rpc RequestExport(ExportRequest) returns (ExportTicket);
+  rpc GetExportStatus(ExportTicketId) returns (ExportTicket);
+  rpc GetAuditLog(AuditLogRequest) returns (AuditLogPage);
+}
+
+message TeamPeriodRequest {
+  string manager_employee_id = 1;
+  string department_id = 2;
+  common.DatePeriod period = 3;
+}
+
+message BoardPeriodRequest {
+  string board_id = 1;
+  common.DatePeriod period = 2;
+}
+
+message TimeUtilizationReport {
+  repeated EmployeeTimeRow rows = 1;
+  int32 total_norm_minutes = 2;
+  int32 total_overtime_minutes = 3;
+}
+
+message EmployeeTimeRow {
+  string employee_id = 1;
+  int32 norm_minutes = 2;
+  int32 absence_minutes = 3;
+  int32 overtime_minutes = 4;
+  int32 total_minutes = 5;
+}
+
+message TaskFlowReport {
+  double avg_lead_time_hours = 1;
+  double avg_cycle_time_hours = 2;
+  int32 created_count = 3;
+  int32 closed_count = 4;
+  repeated ColumnDuration column_durations = 5;
+}
+
+message ColumnDuration {
+  string column_id = 1;
+  string column_name = 2;
+  double avg_hours = 3;
+}
+
+message MeetingStatsReport {
+  int32 call_count = 1;
+  int64 total_duration_sec = 2;
+  double avg_participants = 3;
+}
+
+message ApprovalStatsReport {
+  int32 created = 1;
+  int32 approved = 2;
+  int32 rejected = 3;
+  int32 expired = 4;
+  double avg_decision_hours = 5;
+}
+
+message ExportRequest {
+  string report_type = 1;
+  string requested_by_employee_id = 2;
+  common.DatePeriod period = 3;
+  string params_json = 4;
+  Format format = 5;
+
+  enum Format {
+    FORMAT_UNSPECIFIED = 0;
+    XLSX = 1;
+    CSV = 2;
+    PDF = 3;
+  }
+}
+
+message ExportTicket {
+  string ticket_id = 1;
+  Status status = 2;
+  string file_id = 3;  // заполняется по готовности
+  string error = 4;
+
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    QUEUED = 1;
+    RUNNING = 2;
+    READY = 3;
+    FAILED = 4;
+  }
+}
+
+message ExportTicketId {
+  string ticket_id = 1;
+}
+
+message AuditLogRequest {
+  string actor_employee_id = 1;
+  string event_type = 2;
+  common.DatePeriod period = 3;
+  common.PageRequest page = 4;
+}
+
+message AuditLogEntry {
+  string event_id = 1;
+  string event_type = 2;
+  string producer = 3;
+  string actor_user_id = 4;
+  string actor_employee_id = 5;
+  string correlation_id = 6;
+  string payload_json = 7;
+  int64 occurred_at = 8;
+}
+
+message AuditLogPage {
+  repeated AuditLogEntry entries = 1;
+  common.PageInfo page = 2;
+}

@@ -1,0 +1,347 @@
+syntax = "proto3";
+
+package hr;
+
+import "common.proto";
+
+// hr-service :50052
+//
+// Один пакет — три gRPC-сервиса. Это шов из ADR-1: границы модулей
+// (staff / schedule / timesheet) зафиксированы на уровне контракта, но все
+// три обслуживаются одним контейнером. Выделение любого из них в отдельный
+// сервис = смена URL у клиента, без правки контрактов.
+
+// ────────────────────────────────────────────────────────────────────────────
+// Модель найма (docs/architecture.md §3)
+// ────────────────────────────────────────────────────────────────────────────
+
+// Правовая форма отношений
+enum EmploymentType {
+  EMPLOYMENT_TYPE_UNSPECIFIED = 0;
+  LABOR_CONTRACT = 1;   // трудовой договор
+  CIVIL_CONTRACT = 2;   // ГПХ: подряд, возмездное оказание услуг
+  SELF_EMPLOYED = 3;    // самозанятый (НПД)
+  ENTREPRENEUR = 4;     // ИП
+  OUTSTAFF = 5;         // аутстаффинг
+  INTERN = 6;           // стажёр
+}
+
+// Форма оплаты — ортогональна правовой форме (§3.1)
+enum PaymentForm {
+  PAYMENT_FORM_UNSPECIFIED = 0;
+  SALARY = 1;      // оклад
+  HOURLY = 2;      // почасовая ставка
+  PIECEWORK = 3;   // сдельная
+  PER_ACT = 4;     // по акту выполненных работ
+}
+
+// Производная от пары (EmploymentType, PaymentForm).
+// ЕДИНСТВЕННАЯ величина, по которой ветвится код — §3.2.
+enum TimeTrackingPolicy {
+  TIME_TRACKING_POLICY_UNSPECIFIED = 0;
+  NORM_BASED = 1;         // норма по графику            — реализовано
+  FACT_BASED = 2;         // фактический учёт            — задел, §3.4
+  DELIVERABLE_BASED = 3;  // по объёму работ / актам     — задел
+  NONE = 4;               // время не учитывается вовсе  — реализовано
+}
+
+// Отдельный агрегат, а не поля сотрудника: история найма должна
+// сохраняться для корректного расчёта прошлых периодов (§10.5).
+message EmploymentContract {
+  string contract_id = 1;
+  string employee_id = 2;
+  EmploymentType type = 3;
+  PaymentForm payment_form = 4;
+  TimeTrackingPolicy policy = 5;
+  double rate = 6;        // 1.0 | 0.5 | 0.25 — ставка, а не отдельный тип найма
+  string valid_from = 7;  // YYYY-MM-DD
+  string valid_to = 8;    // пусто — бессрочный
+}
+
+message Employee {
+  string employee_id = 1;
+  string user_id = 2;
+  string full_name = 3;
+  string department_id = 4;
+  string position = 5;
+  string manager_id = 6;
+  bool active = 7;
+  EmploymentContract employment = 8;  // тип найма едет вместе с сотрудником
+  string avatar_file_id = 9;
+  string hired_at = 10;
+  string fired_at = 11;
+}
+
+message EmployeeList {
+  repeated Employee employees = 1;
+}
+
+message Contact {
+  string employee_id = 1;
+  string email = 2;
+  string phone = 3;
+}
+
+message ContactList {
+  repeated Contact contacts = 1;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Модуль staff — сотрудники и оргструктура
+// ────────────────────────────────────────────────────────────────────────────
+
+service StaffService {
+  rpc GetEmployee(EmployeeId) returns (Employee);
+  rpc GetEmployeesBatch(common.Ids) returns (EmployeeList);  // защита от N+1
+  rpc ListByDepartment(DepartmentRequest) returns (EmployeeList);
+  rpc GetManagerChain(EmployeeId) returns (EmployeeList);
+  rpc GetSubordinates(SubordinatesRequest) returns (EmployeeList);
+  rpc IsManagerOf(RelationRequest) returns (common.BoolResult);
+  rpc ExistsAndActive(EmployeeId) returns (common.BoolResult);
+  rpc GetContacts(common.Ids) returns (ContactList);  // fallback для notification
+  rpc GetEmploymentInfo(EmployeeId) returns (EmploymentContract);
+  rpc ChangeEmployment(ChangeEmploymentCmd) returns (EmploymentContract);
+  rpc CreateEmployee(CreateEmployeeCmd) returns (Employee);
+  rpc UpdateEmployee(UpdateEmployeeCmd) returns (Employee);
+  rpc DeactivateEmployee(DeactivateCmd) returns (Employee);
+}
+
+message EmployeeId {
+  string employee_id = 1;
+}
+
+message DepartmentRequest {
+  string department_id = 1;
+  bool include_inactive = 2;
+}
+
+message SubordinatesRequest {
+  string manager_id = 1;
+  int32 depth = 2;  // 1 — прямые подчинённые, -1 — всё дерево
+}
+
+message RelationRequest {
+  string manager_id = 1;
+  string employee_id = 2;
+}
+
+message CreateEmployeeCmd {
+  string user_id = 1;
+  string full_name = 2;
+  string department_id = 3;
+  string position = 4;
+  string manager_id = 5;
+  EmploymentType employment_type = 6;
+  PaymentForm payment_form = 7;
+  double rate = 8;
+  string hired_at = 9;
+}
+
+message UpdateEmployeeCmd {
+  string employee_id = 1;
+  string full_name = 2;
+  string department_id = 3;
+  string position = 4;
+  string manager_id = 5;
+  string avatar_file_id = 6;
+}
+
+message ChangeEmploymentCmd {
+  string employee_id = 1;
+  EmploymentType type = 2;
+  PaymentForm payment_form = 3;
+  double rate = 4;
+  string valid_from = 5;
+}
+
+message DeactivateCmd {
+  string employee_id = 1;
+  string date = 2;
+  string reason = 3;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Модуль schedule — графики, смены, отсутствия
+// ────────────────────────────────────────────────────────────────────────────
+
+service ScheduleService {
+  rpc GetShiftsForPeriod(PeriodRequest) returns (ShiftList);
+  rpc GetNormHours(NormHoursRequest) returns (NormHours);
+  rpc GetWorkContext(WorkContextRequest) returns (WorkContext);
+  rpc GetAbsences(PeriodRequest) returns (AbsenceList);
+  rpc AssignShifts(AssignShiftsRequest) returns (ShiftList);
+  rpc ApplyTemplate(ApplyTemplateRequest) returns (ShiftList);
+  rpc RegisterAbsence(RegisterAbsenceCmd) returns (Absence);
+}
+
+message Shift {
+  string shift_id = 1;
+  string employee_id = 2;
+  string date = 3;
+  string starts_at = 4;  // HH:MM
+  string ends_at = 5;    // HH:MM
+  int32 break_minutes = 6;
+  string template_id = 7;
+}
+
+message ShiftList {
+  repeated Shift shifts = 1;
+}
+
+message Absence {
+  string absence_id = 1;
+  string employee_id = 2;
+  AbsenceType type = 3;
+  common.DatePeriod period = 4;
+  string request_id = 5;  // заявка из approval-service, породившая отсутствие
+
+  enum AbsenceType {
+    ABSENCE_TYPE_UNSPECIFIED = 0;
+    VACATION = 1;      // отпуск
+    SICK_LEAVE = 2;    // больничный
+    TIME_OFF = 3;      // отгул
+    BUSINESS_TRIP = 4; // командировка
+    UNPAID = 5;        // за свой счёт
+  }
+}
+
+message AbsenceList {
+  repeated Absence absences = 1;
+}
+
+message PeriodRequest {
+  repeated string employee_ids = 1;
+  common.DatePeriod period = 2;
+}
+
+message NormHoursRequest {
+  string employee_id = 1;
+  common.DatePeriod period = 2;
+}
+
+message NormHours {
+  int32 norm_minutes = 1;
+  int32 working_days = 2;
+}
+
+message WorkContextRequest {
+  string employee_id = 1;
+  string date = 2;
+}
+
+// Сотрудник + смена + отсутствие одним вызовом.
+// Используется дашбордом руководителя и approval-service при валидации заявок.
+message WorkContext {
+  Employee employee = 1;
+  Shift planned_shift = 2;  // пусто, если по графику не работает или policy = NONE
+  Absence absence = 3;      // пусто, если не в отпуске
+  bool should_be_working = 4;
+}
+
+message AssignShiftsRequest {
+  repeated string employee_ids = 1;
+  repeated Shift shifts = 2;
+}
+
+message ApplyTemplateRequest {
+  repeated string employee_ids = 1;
+  string template_id = 2;
+  common.DatePeriod period = 3;
+}
+
+message RegisterAbsenceCmd {
+  string employee_id = 1;
+  Absence.AbsenceType type = 2;
+  common.DatePeriod period = 3;
+  string request_id = 4;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Модуль timesheet — табель
+//
+// Табель РАСЧЁТНЫЙ, а не журнал фактов (ADR-2):
+//   отработано = норма по графику − отсутствия + согласованные переработки
+// ────────────────────────────────────────────────────────────────────────────
+
+service TimesheetService {
+  rpc GetTimesheet(TimesheetRequest) returns (Timesheet);
+  rpc GetTeamTimesheet(TeamPeriodRequest) returns (TimesheetList);
+  rpc RegisterOvertime(OvertimeCmd) returns (TimesheetEntry);
+  rpc ApplyCorrection(CorrectionCmd) returns (TimesheetEntry);
+  rpc ClosePeriod(ClosePeriodCmd) returns (TimesheetPeriod);
+  rpc ReopenPeriod(ClosePeriodCmd) returns (TimesheetPeriod);
+  rpc ExportT13(TimesheetRequest) returns (common.FileRef);
+}
+
+message TimesheetEntry {
+  string date = 1;
+  int32 norm_minutes = 2;      // по графику
+  int32 absence_minutes = 3;   // отпуск, больничный, отгул
+  int32 overtime_minutes = 4;  // согласованные переработки
+  int32 total_minutes = 5;     // norm − absence + overtime
+  Source source = 6;
+
+  // Задел §3.4: формат ответа готов к появлению фактического учёта.
+  // Сегодня во всех записях source = PLAN; появление FACT не потребует
+  // ни версионирования контракта, ни правок у потребителей.
+  enum Source {
+    PLAN = 0;        // рассчитано от нормы графика
+    FACT = 1;        // из attendance-service — сегодня не используется
+    CORRECTION = 2;  // ручная корректировка по согласованной заявке
+  }
+}
+
+message Timesheet {
+  string employee_id = 1;
+  common.DatePeriod period = 2;
+  repeated TimesheetEntry entries = 3;
+  int32 total_minutes = 4;
+  int32 total_overtime_minutes = 5;
+  bool closed = 6;
+}
+
+message TimesheetList {
+  repeated Timesheet timesheets = 1;
+}
+
+message TimesheetRequest {
+  string employee_id = 1;
+  common.DatePeriod period = 2;
+}
+
+message TeamPeriodRequest {
+  string manager_id = 1;
+  common.DatePeriod period = 2;
+}
+
+message OvertimeCmd {
+  string employee_id = 1;
+  string date = 2;
+  int32 minutes = 3;
+  string request_id = 4;  // согласованная заявка — единственный источник переработки
+  string reason = 5;
+}
+
+message CorrectionCmd {
+  string employee_id = 1;
+  string date = 2;
+  int32 total_minutes = 3;
+  string request_id = 4;
+  string reason = 5;
+}
+
+message TimesheetPeriod {
+  string period_id = 1;
+  string department_id = 2;
+  common.DatePeriod period = 3;
+  bool closed = 4;
+  string closed_by = 5;
+  int64 closed_at = 6;
+}
+
+message ClosePeriodCmd {
+  string department_id = 1;
+  common.DatePeriod period = 2;
+  string actor_employee_id = 3;
+  string reason = 4;
+}

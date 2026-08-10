@@ -1,0 +1,171 @@
+syntax = "proto3";
+
+package chat;
+
+import "common.proto";
+
+// chat-service :50055
+//
+// Сообщения идут через RabbitMQ → gateway → WS (гарантия доставки).
+// Индикатор набора текста и presence — через Redis Pub/Sub, минуя этот
+// контракт: они обязаны теряться при сбое (§5, §8.2).
+
+service ChatService {
+  rpc CreateChannel(CreateChannelRequest) returns (Channel);
+  rpc ListChannels(UserRequest) returns (ChannelList);
+  rpc GetChannel(ChannelRequest) returns (Channel);
+  rpc AddMembers(MembersRequest) returns (Channel);
+  rpc RemoveMember(MemberRequest) returns (Channel);
+  rpc GetOrCreateDirect(DirectRequest) returns (Channel);
+  rpc GetHistory(HistoryRequest) returns (MessageList);
+  rpc SendMessage(SendMessageRequest) returns (Message);
+  rpc EditMessage(EditMessageRequest) returns (Message);
+  rpc DeleteMessage(DeleteMessageRequest) returns (common.Empty);
+  rpc AddReaction(ReactionRequest) returns (Message);
+  rpc MarkRead(MarkReadRequest) returns (UnreadCounters);
+  rpc GetUnreadCounters(UserRequest) returns (UnreadCounters);
+  rpc SearchMessages(SearchRequest) returns (MessageList);
+}
+
+message Channel {
+  string channel_id = 1;
+  string name = 2;
+  ChannelType type = 3;
+  string department_id = 4;
+  repeated string member_employee_ids = 5;
+  string creator_employee_id = 6;
+  int64 last_message_seq = 7;
+  int64 created_at = 8;
+
+  enum ChannelType {
+    CHANNEL_TYPE_UNSPECIFIED = 0;
+    PUBLIC = 1;        // открытый канал
+    PRIVATE = 2;       // приватный канал
+    DIRECT = 3;        // личная переписка двоих
+    GROUP = 4;         // групповая переписка
+    ANNOUNCEMENT = 5;  // объявления: писать может только руководитель (ADR-3)
+  }
+}
+
+message ChannelList {
+  repeated Channel channels = 1;
+}
+
+message Message {
+  string message_id = 1;
+  string channel_id = 2;
+  string author_employee_id = 3;
+  string body = 4;
+  string thread_root_id = 5;  // пусто для сообщения верхнего уровня
+  repeated string mentions = 6;
+  repeated string attachment_file_ids = 7;
+  repeated Reaction reactions = 8;
+  int64 created_at = 9;
+  int64 edited_at = 10;
+  bool deleted = 11;
+  // Монотонный номер в канале. Присваивается в транзакции и служит
+  // и курсором пагинации, и признаком порядка: клиент, увидев разрыв
+  // в нумерации, добирает пропущенное через GetHistory (§8.2).
+  int64 seq = 12;
+}
+
+message MessageList {
+  repeated Message messages = 1;
+  common.PageInfo page = 2;
+}
+
+message Reaction {
+  string emoji = 1;
+  repeated string employee_ids = 2;
+}
+
+message CreateChannelRequest {
+  string name = 1;
+  Channel.ChannelType type = 2;
+  string department_id = 3;
+  repeated string member_employee_ids = 4;
+  string creator_employee_id = 5;
+}
+
+message ChannelRequest {
+  string channel_id = 1;
+}
+
+message UserRequest {
+  string employee_id = 1;
+}
+
+message MembersRequest {
+  string channel_id = 1;
+  repeated string employee_ids = 2;
+}
+
+message MemberRequest {
+  string channel_id = 1;
+  string employee_id = 2;
+}
+
+message DirectRequest {
+  string employee_id_a = 1;
+  string employee_id_b = 2;
+}
+
+message HistoryRequest {
+  string channel_id = 1;
+  int64 before_seq = 2;  // курсорная пагинация по seq, не по offset
+  int32 limit = 3;
+  string thread_root_id = 4;
+}
+
+message SendMessageRequest {
+  string channel_id = 1;
+  string author_employee_id = 2;
+  string body = 3;
+  string thread_root_id = 4;
+  repeated string mentions = 5;
+  repeated string attachment_file_ids = 6;
+  // Идемпотентность на стороне клиента: повторная отправка при обрыве
+  // связи не создаст дубль сообщения.
+  string client_message_id = 7;
+}
+
+message EditMessageRequest {
+  string message_id = 1;
+  string author_employee_id = 2;
+  string body = 3;
+}
+
+message DeleteMessageRequest {
+  string message_id = 1;
+  string actor_employee_id = 2;
+}
+
+message ReactionRequest {
+  string message_id = 1;
+  string employee_id = 2;
+  string emoji = 3;
+}
+
+message MarkReadRequest {
+  string channel_id = 1;
+  string employee_id = 2;
+  int64 up_to_seq = 3;
+}
+
+message UnreadCounters {
+  repeated ChannelUnread items = 1;
+  int32 total = 2;
+}
+
+message ChannelUnread {
+  string channel_id = 1;
+  int32 unread = 2;
+  int32 mentions = 3;
+}
+
+message SearchRequest {
+  string employee_id = 1;
+  string query = 2;
+  string channel_id = 3;
+  common.PageRequest page = 4;
+}

@@ -1,0 +1,52 @@
+{
+  "name": "crm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open source self-hosted CRM для учёта работы сотрудников: графики, табель, согласования, Kanban, чат, видеозвонки",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "libs/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build:libs && npm run build:apps",
+    "//build": "Порядок задан ЯВНО. `npm run build --workspaces` идёт по алфавиту и собирает @crm/common раньше @crm/contracts, от которого тот зависит; на чистом клоне это падает с 'Cannot find module @crm/contracts'.",
+    "build:libs": "npm run build --workspace=@crm/contracts --workspace=@crm/common --workspace=@crm/messaging --workspace=@crm/grpc-clients",
+    "build:apps": "npm run build --workspace=@crm/api-gateway --workspace=@crm/auth-service --workspace=@crm/hr-service --workspace=@crm/approval-service --workspace=@crm/task-service --workspace=@crm/chat-service --workspace=@crm/video-service --workspace=@crm/file-service --workspace=@crm/notification-service --workspace=@crm/analytics-service",
+    "codegen": "bash scripts/codegen.sh",
+    "prisma:generate": "bash scripts/prisma.sh generate",
+    "prisma:migrate": "bash scripts/prisma.sh migrate",
+    "prisma:push": "bash scripts/prisma.sh push",
+    "lint": "eslint \"{apps,libs}/**/*.ts\" --fix",
+    "format": "prettier --write \"{apps,libs}/**/*.ts\"",
+    "test": "npm run test --workspaces --if-present",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d",
+    "docker:up:infra": "docker compose up -d postgres redis rabbitmq",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:ps": "docker compose ps"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/testing": "^11.0.0",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "typescript-eslint": "^8.18.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.4.2",
+    "prisma": "^6.1.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "ts-proto": "^2.6.0",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.7.2"
+  }
+}

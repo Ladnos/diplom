@@ -1,0 +1,135 @@
+syntax = "proto3";
+
+package approval;
+
+import "common.proto";
+
+// approval-service :50053
+//
+// Владеет ПРОЦЕССОМ согласования, но не РЕЗУЛЬТАТОМ (ADR-3).
+// Не пишет отпуск в hr_db — публикует approval.request.approved и ждёт
+// подтверждающего события hr.absence.registered с тем же request_id.
+
+service ApprovalService {
+  rpc CreateRequest(CreateRequestCmd) returns (Request);
+  rpc GetRequest(RequestId) returns (Request);
+  rpc ListPendingForMe(ApproverRequest) returns (RequestList);  // очередь руководителя
+  rpc ListMyRequests(AuthorRequest) returns (RequestList);
+  rpc GetPendingCount(ApproverRequest) returns (common.Counter);
+  rpc Approve(DecisionRequest) returns (Request);
+  rpc Reject(DecisionRequest) returns (Request);
+  rpc Cancel(RequestId) returns (Request);
+  rpc SetDelegation(DelegationRequest) returns (common.Empty);
+  rpc GetRoute(RequestId) returns (ApprovalRoute);
+  // Зависит от time_tracking_policy сотрудника (§3.3): у самозанятого
+  // в списке не будет отпуска и переработки.
+  rpc GetAvailableTypes(EmployeeRef) returns (RequestTypeList);
+}
+
+enum RequestType {
+  REQUEST_TYPE_UNSPECIFIED = 0;
+  VACATION = 1;       // отпуск
+  TIME_OFF = 2;       // отгул / больничный
+  OVERTIME = 3;       // переработка
+  SHIFT_SWAP = 4;     // обмен сменами
+  TIMESHEET_FIX = 5;  // корректировка табеля
+  TRIP = 6;           // командировка
+  PERIOD_CLOSE = 7;   // закрытие табеля за период
+  WORK_ACT = 8;       // акт выполненных работ (DELIVERABLE_BASED)
+}
+
+enum RequestStatus {
+  REQUEST_STATUS_UNSPECIFIED = 0;
+  DRAFT = 1;
+  PENDING = 2;
+  APPROVED = 3;       // решение принято, результат ещё не применён
+  APPLIED = 4;        // владелец данных подтвердил применение
+  APPLY_FAILED = 5;   // применение провалилось либо истёк таймер саги
+  REJECTED = 6;
+  CANCELLED = 7;      // отозвана автором
+  EXPIRED = 8;        // истёк SLA
+}
+
+message ApprovalStep {
+  int32 order = 1;
+  string approver_employee_id = 2;
+  string delegated_to = 3;
+  StepStatus status = 4;
+  string comment = 5;
+  int64 decided_at = 6;
+
+  enum StepStatus {
+    STEP_STATUS_UNSPECIFIED = 0;
+    WAITING = 1;
+    APPROVED = 2;
+    REJECTED = 3;
+    SKIPPED = 4;
+  }
+}
+
+message ApprovalRoute {
+  string request_id = 1;
+  repeated ApprovalStep steps = 2;
+  int32 current_step = 3;
+}
+
+message Request {
+  string request_id = 1;
+  RequestType type = 2;
+  string author_employee_id = 3;
+  RequestStatus status = 4;
+  int32 current_step = 5;
+  repeated ApprovalStep steps = 6;
+  // Тело заявки, специфичное для типа. JSON, а не oneof: типы заявок
+  // добавляются чаще, чем меняется контракт, и потребитель тела — только
+  // сервис-исполнитель, который знает свой формат.
+  string payload_json = 7;
+  int64 sla_deadline = 8;
+  int64 created_at = 9;
+  string failure_reason = 10;
+}
+
+message RequestList {
+  repeated Request requests = 1;
+  common.PageInfo page = 2;
+}
+
+message CreateRequestCmd {
+  RequestType type = 1;
+  string author_employee_id = 2;
+  string payload_json = 3;
+}
+
+message RequestId {
+  string request_id = 1;
+}
+
+message EmployeeRef {
+  string employee_id = 1;
+}
+
+message ApproverRequest {
+  string approver_employee_id = 1;
+  common.PageRequest page = 2;
+}
+
+message AuthorRequest {
+  string author_employee_id = 1;
+  common.PageRequest page = 2;
+}
+
+message DecisionRequest {
+  string request_id = 1;
+  string approver_employee_id = 2;
+  string comment = 3;
+}
+
+message DelegationRequest {
+  string manager_employee_id = 1;
+  string delegate_employee_id = 2;
+  common.DatePeriod period = 3;
+}
+
+message RequestTypeList {
+  repeated RequestType types = 1;
+}

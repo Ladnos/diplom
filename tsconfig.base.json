@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "moduleResolution": "node",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "removeComments": false,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "incremental": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "strictNullChecks": true,
+    "strictPropertyInitialization": false,
+    "noImplicitAny": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "//": [
+    "Здесь намеренно НЕТ compilerOptions.paths с алиасами на исходники @crm/*.",
+    "Пакеты резолвятся через симлинки npm workspaces в собранные dist, поэтому",
+    "каждая библиотека компилируется ровно один раз и попадает в свой пакет.",
+    "С paths на src библиотеки затягивали бы исходники друг друга в собственный",
+    "выход и падали на rootDir. Цена — порядок сборки: сначала libs, потом apps",
+    "(см. build:libs в корневом package.json)."
+  ],
+  "exclude": ["node_modules", "dist"]
+}
