@@ -53,6 +53,11 @@ export class PermissionGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // См. JwtAuthGuard: глобальный guard срабатывает и на сообщениях из
+    // брокера, и на сообщениях WebSocket. Права на комнату проверяет сам
+    // шлюз при подписке, права на событие из RabbitMQ проверять не у кого.
+    if (context.getType() !== 'http') return true;
+
     const rule = this.reflector.getAllAndOverride<PermissionRule>(PERMISSION_KEY, [
       context.getHandler(),
       context.getClass(),

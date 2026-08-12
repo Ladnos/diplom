@@ -8,7 +8,7 @@
  */
 
 import type { CommandType, EventType } from './routing-keys';
-import { AuthEvents, HrEvents, ApprovalEvents, TaskEvents, ChatEvents, VideoEvents, FileEvents, AnalyticsEvents, Commands } from './routing-keys';
+import { AuthEvents, HrEvents, ApprovalEvents, TaskEvents, ChatEvents, VideoEvents, FileEvents, NotificationEvents, AnalyticsEvents, Commands } from './routing-keys';
 
 // ── Общие типы модели найма (зеркало enum'ов из hr.proto) ───────────────────
 
@@ -314,6 +314,13 @@ export interface CardAssigned {
 
 export interface CardCommented {
   cardId: string;
+  /**
+   * Доска, к которой относится карточка. Дублирует связь, выводимую из
+   * cardId, — но потребители realtime раскладывают событие по комнатам
+   * синхронно, не имея права сходить в task-service за этой связью
+   * (§8.1). Без поля комментарий не попал бы на открытую доску.
+   */
+  boardId: string;
   commentId: string;
   authorEmployeeId: string;
   mentions: string[];
@@ -456,6 +463,31 @@ export interface StorageLow {
   usedRatio: number;
 }
 
+// ── notification ────────────────────────────────────────────────────────────
+
+/**
+ * Уведомление добавлено в in-app ленту.
+ *
+ * Адресуется по userId, а не employeeId: лента принадлежит учётной
+ * записи, и у части получателей (например, у администратора без карточки
+ * сотрудника) employeeId нет вовсе.
+ *
+ * Полезная нагрузка повторяет то, что уже лежит в БД, чтобы клиент показал
+ * всплывающее уведомление, не запрашивая ленту заново. Счётчика здесь нет
+ * намеренно: считать непрочитанное на каждое событие — лишний запрос к БД
+ * ради числа, которое клиент увеличивает у себя сам.
+ */
+export interface NotificationCreated {
+  notificationId: string;
+  userId: string;
+  title: string;
+  body: string;
+  link?: string;
+  priority: NotificationPriority;
+  /** Тип доменного события, породившего уведомление, — для группировки в UI. */
+  sourceEventType?: string;
+}
+
 // ── analytics ───────────────────────────────────────────────────────────────
 
 export interface ReportReady {
@@ -528,6 +560,8 @@ export interface EventPayloadMap {
   [FileEvents.THUMBNAIL_READY]: ThumbnailReady;
   [FileEvents.QUOTA_EXCEEDED]: QuotaExceeded;
   [FileEvents.STORAGE_LOW]: StorageLow;
+
+  [NotificationEvents.CREATED]: NotificationCreated;
 
   [AnalyticsEvents.REPORT_READY]: ReportReady;
 }

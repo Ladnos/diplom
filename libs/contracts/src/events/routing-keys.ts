@@ -100,6 +100,23 @@ export const FileEvents = {
   STORAGE_LOW: 'file.storage.low',
 } as const;
 
+export const NotificationEvents = {
+  /**
+   * Уведомление легло в in-app ленту. Единственный потребитель —
+   * api-gateway: событие поднимает счётчик непрочитанного в открытом
+   * окне, не дожидаясь следующего запроса ленты (§8.1).
+   *
+   * Публикуется БЕЗ outbox, в отличие от доменных событий. Причина в
+   * назначении: сама лента уже сохранена в БД и читается запросом, а это
+   * сообщение — лишь подсказка «обновись сейчас». Потеря при падении
+   * процесса между коммитом и отправкой означает, что счётчик обновится
+   * при следующем открытии ленты, то есть ровно то поведение, которое
+   * было до появления WebSocket. Платить за это таблицей outbox и
+   * фоновым публикатором смысла нет.
+   */
+  CREATED: 'notification.created',
+} as const;
+
 export const AnalyticsEvents = {
   REPORT_READY: 'analytics.report.ready',
 } as const;
@@ -123,6 +140,7 @@ export const DomainEvents = {
   ...ChatEvents,
   ...VideoEvents,
   ...FileEvents,
+  ...NotificationEvents,
   ...AnalyticsEvents,
 } as const;
 

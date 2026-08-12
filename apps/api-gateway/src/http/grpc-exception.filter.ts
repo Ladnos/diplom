@@ -40,8 +40,24 @@ export class GrpcExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GrpcExceptionFilter.name);
 
   catch(exception: unknown, host: ArgumentsHost): void {
-    const response = host.switchToHttp().getResponse<Response>();
     const correlationId = getRequestContext().correlationId;
+
+    // Фильтр зарегистрирован глобально и вызывается для всех транспортов.
+    // Ответа с кодом состояния нет ни у сообщения из RabbitMQ, ни у
+    // сообщения WebSocket: попытка вызвать response.status() там дала бы
+    // вторую ошибку поверх первой и скрыла бы исходную.
+    if (host.getType() !== 'http') {
+      this.logger.error({
+        message: 'необработанная ошибка вне HTTP-запроса',
+        transport: host.getType(),
+        correlationId,
+        detail: exception instanceof Error ? exception.message : String(exception),
+        stack: exception instanceof Error ? exception.stack : undefined,
+      });
+      return;
+    }
+
+    const response = host.switchToHttp().getResponse<Response>();
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();

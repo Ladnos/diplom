@@ -407,6 +407,7 @@ export class CardService {
         TaskEvents.CARD_COMMENTED,
         {
           cardId: card.id,
+          boardId: card.boardId,
           commentId: comment.id,
           authorEmployeeId: input.authorEmployeeId,
           mentions,

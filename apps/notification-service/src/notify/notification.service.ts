@@ -5,8 +5,12 @@ import type {
   EventType,
   NotificationAudience,
   NotificationChannel,
+  NotificationPriority,
   NotificationSend,
+  RequestContext,
 } from '@crm/contracts';
+import { NotificationEvents } from '@crm/contracts';
+import { EventPublisher } from '@crm/messaging';
 import { Channel, Prisma, Priority, type Contact } from '../../generated/prisma';
 import { PrismaService } from '../prisma/prisma.service';
 import { ContactsService } from '../contacts/contacts.service';
@@ -42,6 +46,7 @@ export class NotificationService {
     private readonly contacts: ContactsService,
     private readonly presence: PresenceService,
     private readonly preferences: PreferencesService,
+    private readonly publisher: EventPublisher,
   ) {}
 
   /**
@@ -77,7 +82,7 @@ export class NotificationService {
       ? await rule(envelope.payload, { contacts: this.contacts, presence: this.presence })
       : [];
 
-    await this.persist(envelope.eventId, eventType, addressed);
+    await this.persist(envelope.eventId, eventType, addressed, contextOf(envelope));
   }
 
   /**
@@ -99,7 +104,7 @@ export class NotificationService {
       });
       // Отметку всё равно ставим: повторная доставка той же команды
       // получателей не найдёт тем более, а DLQ забивать нечем.
-      await this.persist(envelope.eventId, envelope.eventType, []);
+      await this.persist(envelope.eventId, envelope.eventType, [], contextOf(envelope));
       return 0;
     }
 
@@ -115,6 +120,7 @@ export class NotificationService {
       envelope.eventId,
       (payload.eventType ?? envelope.eventType) as EventType,
       [{ userIds: recipients.map((contact) => contact.userId), draft }],
+      contextOf(envelope),
     );
   }
 
@@ -147,6 +153,7 @@ export class NotificationService {
     eventId: string,
     eventType: string,
     addressed: Addressed[],
+    context: RequestContext,
   ): Promise<number> {
     const rows = await this.plan(eventId, eventType, addressed);
 
@@ -178,8 +185,61 @@ export class NotificationService {
         notifications: rows.notifications.length,
         deliveries: rows.deliveries.length,
       });
+      this.announce(rows.notifications, eventType, context);
     }
     return rows.notifications.length;
+  }
+
+  /**
+   * Сообщить открытым окнам, что в ленте прибавилось. §8.1
+   *
+   * ПОСЛЕ коммита и БЕЗ outbox — оба решения намеренные.
+   *
+   * После коммита: событие утверждает, что запись в ленте есть, и
+   * опубликовать его внутри транзакции значило бы позвать клиента за
+   * уведомлением, которого он ещё не увидит, а при откате — не увидит
+   * никогда.
+   *
+   * Без outbox: падение процесса между коммитом и публикацией стоит
+   * ровно одного неподнятого счётчика — лента уже сохранена и будет
+   * прочитана при следующем открытии. Это то же поведение, что было до
+   * появления WebSocket. Таблица outbox и опрашивающий её воркер в
+   * каждом контейнере — слишком дорогая плата за подсказку «обновись».
+   *
+   * Публикуются только видимые записи: событие означает появление в
+   * in-app ленте, а строка, созданная ради одного письма, в ленту не
+   * попадает и обновлять клиенту нечего.
+   */
+  private announce(
+    notifications: Prisma.NotificationCreateManyInput[],
+    eventType: string,
+    context: RequestContext,
+  ): void {
+    for (const row of notifications) {
+      if (!row.visible) continue;
+
+      try {
+        this.publisher.publish(
+          NotificationEvents.CREATED,
+          {
+            notificationId: row.id as string,
+            userId: row.userId,
+            title: row.title,
+            body: row.body,
+            link: row.link ?? undefined,
+            priority: (row.priority ?? 'NORMAL') as NotificationPriority,
+            sourceEventType: eventType,
+          },
+          context,
+        );
+      } catch (error) {
+        this.logger.warn({
+          message: 'не удалось объявить о новом уведомлении',
+          notificationId: row.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
 
   /**
@@ -318,6 +378,21 @@ export class NotificationService {
     });
     return found !== null;
   }
+}
+
+/**
+ * Контекст трассировки для событий, порождённых обработкой входящего.
+ *
+ * causationId — идентификатор исходного события, а не его correlationId:
+ * так по журналу видно не только «к какому запросу относится», но и
+ * «чем именно вызвано» (§7.6).
+ */
+function contextOf(envelope: Envelope): RequestContext {
+  return {
+    correlationId: envelope.correlationId,
+    causationId: envelope.eventId,
+    actor: envelope.actor,
+  };
 }
 
 /** P2002 — нарушение уникального ключа. */

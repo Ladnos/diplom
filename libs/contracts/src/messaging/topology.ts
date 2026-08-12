@@ -87,7 +87,18 @@ export const QUEUE_DEFINITIONS: QueueDefinition[] = [
     bindings: [
       {
         exchange: Exchanges.EVENTS,
-        patterns: ['task.#', 'chat.#', 'video.#', 'approval.#', 'hr.timesheet.#'],
+        patterns: [
+          'task.#',
+          'chat.#',
+          'video.#',
+          'approval.#',
+          'hr.timesheet.#',
+          // Не 'notification.#': из всего контекста уведомлений в живое
+          // окно идёт только появление записи в ленте. Отметки о
+          // прочтении и результаты отправки писем клиенту не нужны, а
+          // широкий паттерн затянул бы их вместе с будущими событиями.
+          'notification.created',
+        ],
       },
     ],
   },

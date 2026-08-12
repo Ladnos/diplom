@@ -14,6 +14,11 @@ import { NotificationClient } from './clients/notification.client';
 import { RedisService } from './cache/redis.service';
 import { JwtAuthGuard } from './auth/auth.guard';
 import { PermissionGuard } from './auth/permission.guard';
+import { TokenResolver } from './auth/token-resolver';
+import { RealtimeGateway } from './realtime/realtime.gateway';
+import { RealtimeEventsController } from './realtime/realtime.controller';
+import { PresenceService } from './realtime/presence.service';
+import { EphemeralBus } from './realtime/ephemeral.bus';
 import { GrpcExceptionFilter } from './http/grpc-exception.filter';
 import { AuthController } from './http/auth.controller';
 import { EmployeesController } from './http/employees.controller';
@@ -31,9 +36,15 @@ import { NotificationsController } from './http/notifications.controller';
  * Держит gRPC-клиентов ко всем доменным сервисам и собирает из них
  * ответы для клиента — это и есть BFF-агрегация из ADR-3, часть 3.
  *
+ * Здесь же живёт WebSocket-слой (§8.1): RealtimeGateway держит соединения
+ * клиентов, RealtimeEventsController читает очередь gateway.realtime и
+ * раскладывает события по комнатам. Это единственный контроллер шлюза,
+ * который слушает не HTTP, а брокер.
+ *
  * Порядок guard'ов важен: JwtAuthGuard заполняет request.user, на
  * который опирается PermissionGuard. Nest применяет глобальные guard'ы
- * в порядке регистрации.
+ * в порядке регистрации. Оба пропускают всё, что пришло не по HTTP, —
+ * у сообщений брокера и WebSocket своя проверка.
  */
 @Module({
   imports: [
@@ -61,8 +72,13 @@ import { NotificationsController } from './http/notifications.controller';
     BoardsController,
     CardsController,
     NotificationsController,
+    RealtimeEventsController,
   ],
   providers: [
+    RealtimeGateway,
+    PresenceService,
+    EphemeralBus,
+    TokenResolver,
     AuthClient,
     AdminClient,
     HrClient,
