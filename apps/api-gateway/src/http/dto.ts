@@ -62,6 +62,12 @@ export class UpdateEmployeeDto {
   @Length(2, 200)
   fullName?: string;
 
+  /** Название должности, а не ссылка на справочник — см. hr.proto. */
+  @IsOptional()
+  @IsString()
+  @Length(0, 200)
+  position?: string;
+
   @IsOptional()
   @IsUUID()
   departmentId?: string;

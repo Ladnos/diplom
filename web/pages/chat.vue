@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { MessageSquare, Paperclip, Plus, Send, Video } from 'lucide-vue-next';
+import { MessageSquare, Paperclip, Plus, Send, Users, Video, X } from 'lucide-vue-next';
 import { useAuthStore } from '~/stores/auth';
 import { cn, formatRelative, formatBytes } from '~/lib/utils';
 import { CHANNEL_TYPES } from '~/lib/domain';
@@ -22,7 +22,11 @@ const scroller = ref<HTMLElement | null>(null);
 const pendingFiles = ref<{ file: File; progress: number }[]>([]);
 
 const createOpen = ref(false);
-const newChannel = ref({ name: '', type: 'PRIVATE' });
+const newChannel = ref({ name: '', type: 'PRIVATE', memberEmployeeIds: [] as string[] });
+
+const membersOpen = ref(false);
+const toInvite = ref<string[]>([]);
+const inviting = ref(false);
 
 const unsubscribers: (() => void)[] = [];
 let typingSentAt = 0;
@@ -189,15 +193,64 @@ async function startCall() {
 
 async function createChannel() {
   const channel = await run(
-    () => api.post<Channel>('/api/channels', { name: newChannel.value.name, type: newChannel.value.type }),
+    () =>
+      api.post<Channel>('/api/channels', {
+        name: newChannel.value.name,
+        type: newChannel.value.type,
+        memberEmployeeIds: newChannel.value.memberEmployeeIds,
+      }),
     'Канал создан',
   );
   if (!channel) return;
 
   createOpen.value = false;
-  newChannel.value.name = '';
+  newChannel.value = { name: '', type: 'PRIVATE', memberEmployeeIds: [] };
   await loadChannels();
   await open(channel);
+}
+
+/**
+ * Обновление карточки канала после смены состава.
+ *
+ * Ответы на добавление и удаление несут только счётчик, а список слева и
+ * шапка показывают участников поимённо — перечитываем канал целиком.
+ */
+async function reloadChannel() {
+  if (!active.value) return;
+  const fresh = await api.get<Channel>(`/api/channels/${active.value.channelId}`);
+  active.value = fresh;
+
+  const index = channels.value.findIndex((item) => item.channelId === fresh.channelId);
+  if (index >= 0) channels.value[index] = { ...channels.value[index], ...fresh };
+}
+
+async function inviteMembers() {
+  if (!active.value || toInvite.value.length === 0) return;
+  inviting.value = true;
+  try {
+    const result = await run(
+      () => api.post(`/api/channels/${active.value!.channelId}/members`, {
+        employeeIds: toInvite.value,
+      }),
+      'Участники добавлены',
+    );
+    if (result === null) return;
+
+    toInvite.value = [];
+    await reloadChannel();
+  } finally {
+    inviting.value = false;
+  }
+}
+
+async function removeMember(employeeId: string) {
+  if (!active.value) return;
+  const result = await run(
+    () => api.delete(`/api/channels/${active.value!.channelId}/members/${employeeId}`),
+    'Участник удалён',
+  );
+  if (result === null) return;
+  await reloadChannel();
 }
 
 async function scrollDown() {
@@ -270,6 +323,16 @@ watch(messages, () => void 0, { deep: false });
         <h2 v-else class="text-sm font-semibold">Выберите канал</h2>
       </template>
       <template #actions>
+        <UiButton
+          v-if="active"
+          variant="ghost"
+          size="sm"
+          title="Участники канала"
+          @click="membersOpen = true"
+        >
+          <Users class="size-4" />
+          Участники
+        </UiButton>
         <UiButton v-if="active" variant="outline" size="sm" @click="startCall">
           <Video class="size-4" />
           Позвонить
@@ -389,11 +452,66 @@ watch(messages, () => void 0, { deep: false });
             ]"
           />
         </div>
+        <div class="space-y-1.5">
+          <label class="text-sm font-medium">Кого пригласить</label>
+          <EmployeePicker
+            v-model="newChannel.memberEmployeeIds"
+            multiple
+            :exclude="auth.employeeId ? [auth.employeeId] : []"
+          />
+        </div>
         <div class="flex justify-end gap-2">
           <UiButton type="button" variant="outline" @click="createOpen = false">Отмена</UiButton>
           <UiButton type="submit" :disabled="!newChannel.name.trim()">Создать</UiButton>
         </div>
       </form>
+    </UiDialog>
+
+    <UiDialog
+      v-model:open="membersOpen"
+      :title="active ? `Участники · ${channelTitle(active)}` : 'Участники'"
+      description="Приглашённый видит всю прошлую переписку канала"
+    >
+      <div v-if="active" class="space-y-4">
+        <div class="space-y-1">
+          <div
+            v-for="member in active.members"
+            :key="member.employeeId"
+            class="flex items-center justify-between gap-3 py-1"
+          >
+            <div class="flex min-w-0 items-center gap-2">
+              <UiAvatar :name="member.fullName" :id="member.employeeId" size="sm" />
+              <span class="truncate text-sm">
+                {{ member.fullName ?? member.employeeId.slice(0, 8) }}
+              </span>
+              <UiBadge v-if="member.employeeId === auth.employeeId" variant="muted">вы</UiBadge>
+            </div>
+            <UiButton
+              v-if="member.employeeId !== auth.employeeId"
+              size="icon-sm"
+              variant="ghost"
+              title="Убрать из канала"
+              @click="removeMember(member.employeeId)"
+            >
+              <X class="size-4" />
+            </UiButton>
+          </div>
+        </div>
+
+        <div class="space-y-2 border-t pt-4">
+          <p class="text-muted-foreground text-xs font-medium">Пригласить</p>
+          <EmployeePicker
+            v-model="toInvite"
+            multiple
+            :exclude="active.members.map((member) => member.employeeId)"
+          />
+          <div class="flex justify-end">
+            <UiButton :disabled="toInvite.length === 0" :loading="inviting" @click="inviteMembers">
+              Добавить
+            </UiButton>
+          </div>
+        </div>
+      </div>
     </UiDialog>
     </div>
   </div>

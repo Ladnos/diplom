@@ -9,8 +9,9 @@ const { run, success } = useToast();
 
 interface Role {
   code: string;
-  title: string;
-  grants: { resource: string; action: string; scope: string }[];
+  name: string;
+  userCount: number;
+  permissions: { resource: string; action: string; scope: string }[];
 }
 
 interface UserRow {
@@ -19,7 +20,25 @@ interface UserRow {
   status: string;
   employeeId: string | null;
   fullName: string | null;
-  roles: { code: string; auto: boolean }[];
+  /** Коды ролей строками: признак «выдана автоматически» есть только в карточке. */
+  roles: string[];
+}
+
+/**
+ * Карточка пользователя.
+ *
+ * Список отдаёт роли кодами, и по нему нельзя понять, какие из них выданы
+ * системой из оргструктуры: снять такую роль вручную нельзя, и кнопка
+ * «Снять» рядом с ней вводила бы в заблуждение. Признак приходит только
+ * в GET /api/admin/users/:id, поэтому карточка грузится отдельно.
+ */
+interface UserDetails extends UserRow {
+  grants: {
+    roleCode: string;
+    roleName: string;
+    auto: boolean;
+    assignedAt: number;
+  }[];
 }
 
 const users = ref<UserRow[]>([]);
@@ -28,7 +47,8 @@ const loading = ref(true);
 const search = ref('');
 
 const rolesOpen = ref(false);
-const active = ref<UserRow | null>(null);
+const active = ref<UserDetails | null>(null);
+const activeLoading = ref(false);
 const roleToGrant = ref('');
 
 onMounted(async () => {
@@ -56,36 +76,47 @@ const filtered = computed(() => {
   );
 });
 
-function openRoles(user: UserRow) {
-  active.value = user;
+async function openRoles(user: UserRow) {
   roleToGrant.value = '';
   rolesOpen.value = true;
+  activeLoading.value = true;
+  try {
+    active.value = await api.get<UserDetails>(`/api/admin/users/${user.userId}`);
+  } finally {
+    activeLoading.value = false;
+  }
 }
 
 async function grant() {
   if (!active.value || !roleToGrant.value) return;
 
-  const result = await run(
-    () => api.post(`/api/admin/users/${active.value!.userId}/roles`, { roleCode: roleToGrant.value }),
+  // Обе команды отдают обновлённую карточку — перечитывать её отдельным
+  // запросом не нужно, а список обновляем ради колонки «Роли».
+  const details = await run(
+    () =>
+      api.post<UserDetails>(`/api/admin/users/${active.value!.userId}/roles`, {
+        roleCode: roleToGrant.value,
+      }),
     'Роль выдана',
   );
-  if (result === null) return;
+  if (!details) return;
 
+  active.value = details;
+  roleToGrant.value = '';
   await loadUsers();
-  active.value = users.value.find((user) => user.userId === active.value!.userId) ?? null;
 }
 
 async function revoke(code: string) {
   if (!active.value) return;
 
-  const result = await run(
-    () => api.delete(`/api/admin/users/${active.value!.userId}/roles/${code}`),
+  const details = await run(
+    () => api.delete<UserDetails>(`/api/admin/users/${active.value!.userId}/roles/${code}`),
     'Роль снята',
   );
-  if (result === null) return;
+  if (!details) return;
 
+  active.value = details;
   await loadUsers();
-  active.value = users.value.find((user) => user.userId === active.value!.userId) ?? null;
 }
 
 async function toggleBlock(user: UserRow) {
@@ -103,8 +134,8 @@ async function toggleBlock(user: UserRow) {
 
 const grantOptions = computed(() =>
   roles.value
-    .filter((role) => !active.value?.roles.some((assigned) => assigned.code === role.code))
-    .map((role) => ({ value: role.code, label: role.title || ROLE_TITLES[role.code] || role.code })),
+    .filter((role) => !(active.value?.grants ?? []).some((grant) => grant.roleCode === role.code))
+    .map((role) => ({ value: role.code, label: ROLE_TITLES[role.code] || role.name || role.code })),
 );
 </script>
 
@@ -149,14 +180,8 @@ const grantOptions = computed(() =>
 
         <template #roles="{ row }">
           <div class="flex flex-wrap gap-1">
-            <UiBadge
-              v-for="role in (row as UserRow).roles"
-              :key="role.code"
-              :variant="role.auto ? 'muted' : 'secondary'"
-              :title="role.auto ? 'Выдана автоматически из оргструктуры' : 'Назначена вручную'"
-            >
-              {{ ROLE_TITLES[role.code] ?? role.code }}
-              <span v-if="role.auto" class="opacity-60">·авто</span>
+            <UiBadge v-for="code in (row as UserRow).roles" :key="code" variant="secondary">
+              {{ ROLE_TITLES[code] ?? code }}
             </UiBadge>
             <span v-if="(row as UserRow).roles.length === 0" class="text-muted-foreground text-xs">
               нет ролей
@@ -194,25 +219,28 @@ const grantOptions = computed(() =>
       :title="active?.fullName ?? active?.email ?? 'Роли'"
       description="Роль MANAGER выдаётся автоматически тем, у кого есть подчинённые"
     >
-      <div v-if="active" class="space-y-4">
+      <div v-if="activeLoading" class="text-muted-foreground text-sm">Загрузка…</div>
+
+      <div v-else-if="active" class="space-y-4">
         <div class="space-y-2">
           <p class="text-muted-foreground text-xs font-medium">Текущие роли</p>
-          <div v-if="active.roles.length === 0" class="text-muted-foreground text-sm">
+          <div v-if="active.grants.length === 0" class="text-muted-foreground text-sm">
             Ролей нет
           </div>
-          <div v-for="role in active.roles" :key="role.code" class="flex items-center justify-between gap-3">
+          <div
+            v-for="grant in active.grants"
+            :key="grant.roleCode"
+            class="flex items-center justify-between gap-3"
+          >
             <div>
-              <p class="text-sm font-medium">{{ ROLE_TITLES[role.code] ?? role.code }}</p>
-              <p v-if="role.auto" class="text-muted-foreground text-xs">
+              <p class="text-sm font-medium">
+                {{ ROLE_TITLES[grant.roleCode] ?? grant.roleName ?? grant.roleCode }}
+              </p>
+              <p v-if="grant.auto" class="text-muted-foreground text-xs">
                 выдана автоматически — снимется, когда не останется подчинённых
               </p>
             </div>
-            <UiButton
-              v-if="!role.auto"
-              size="sm"
-              variant="ghost"
-              @click="revoke(role.code)"
-            >
+            <UiButton v-if="!grant.auto" size="sm" variant="ghost" @click="revoke(grant.roleCode)">
               Снять
             </UiButton>
           </div>

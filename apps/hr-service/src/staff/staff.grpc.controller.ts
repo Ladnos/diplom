@@ -1,9 +1,18 @@
 import { Controller } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
-import type { Employee, EmploymentContract, EmploymentType, PaymentForm } from '../../generated/prisma';
+import type {
+  Employee,
+  EmploymentContract,
+  EmploymentType,
+  PaymentForm,
+  Position,
+} from '../../generated/prisma';
 import { StaffService } from './staff.service';
 
-type EmployeeWithContract = Employee & { contracts: EmploymentContract[] };
+type EmployeeWithContract = Employee & {
+  contracts: EmploymentContract[];
+  position?: Position | null;
+};
 
 /** Дата в БД хранится как DATE; наружу отдаём ISO без времени. */
 function toIsoDate(value: Date | null): string {
@@ -40,7 +49,7 @@ function mapEmployee(employee: EmployeeWithContract) {
     user_id: employee.userId,
     full_name: employee.fullName,
     department_id: employee.departmentId ?? '',
-    position: employee.positionId ?? '',
+    position: employee.position?.name ?? '',
     manager_id: employee.managerId ?? '',
     active: employee.active,
     employment: mapContract(employee.contracts?.[0]),
@@ -80,6 +89,24 @@ export class StaffGrpcController {
       data.department_id,
       data.include_inactive ?? false,
     );
+    return { employees: employees.map(mapEmployee) };
+  }
+
+  @GrpcMethod('StaffService', 'ListEmployees')
+  async listEmployees(data: {
+    query?: string;
+    department_id?: string;
+    include_inactive?: boolean;
+    limit?: number;
+    offset?: number;
+  }) {
+    const employees = await this.staff.listEmployees({
+      query: data.query || undefined,
+      departmentId: data.department_id || undefined,
+      includeInactive: data.include_inactive ?? false,
+      limit: data.limit,
+      offset: data.offset,
+    });
     return { employees: employees.map(mapEmployee) };
   }
 
@@ -165,13 +192,16 @@ export class StaffGrpcController {
       email: `${data.user_id}@placeholder.local`,
       fullName: data.full_name,
       departmentId: data.department_id || undefined,
+      position: data.position || undefined,
       managerId: data.manager_id || undefined,
       type: data.employment_type,
       paymentForm: data.payment_form,
       rate: optionalRate(data.rate),
       hiredAt: data.hired_at || undefined,
     });
-    return mapEmployee({ ...employee, contracts: [] });
+    // Перечитываем: команды возвращают запись без связей, а в ответе
+    // должны быть и договор, и название должности.
+    return mapEmployee(await this.staff.getEmployee(employee.id));
   }
 
   @GrpcMethod('StaffService', 'UpdateEmployee')
@@ -187,10 +217,11 @@ export class StaffGrpcController {
       employeeId: data.employee_id,
       fullName: data.full_name || undefined,
       departmentId: data.department_id || undefined,
+      position: data.position || undefined,
       managerId: data.manager_id || undefined,
       avatarFileId: data.avatar_file_id || undefined,
     });
-    return mapEmployee({ ...employee, contracts: [] });
+    return mapEmployee(await this.staff.getEmployee(employee.id));
   }
 
   @GrpcMethod('StaffService', 'DeactivateEmployee')
@@ -200,6 +231,6 @@ export class StaffGrpcController {
       date: data.date || undefined,
       reason: data.reason || undefined,
     });
-    return mapEmployee({ ...employee, contracts: [] });
+    return mapEmployee(await this.staff.getEmployee(employee.id));
   }
 }

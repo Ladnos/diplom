@@ -27,28 +27,50 @@ export class EmployeesController {
     @CurrentUser() user: AuthenticatedUser,
     @PermissionScope() scope: string,
     @Query('departmentId') departmentId?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
   ) {
     if (!user.employeeId && scope !== 'GLOBAL') {
       return { employees: [], scope, note: 'профиль сотрудника ещё не создан' };
     }
 
+    const query = (search ?? '').trim();
+    const parsed = Number.parseInt(limit ?? '', 10);
+    const take = Number.isFinite(parsed) && parsed > 0 ? parsed : 50;
     let employees: EmployeeDto[] = [];
 
-    if (scope === 'GLOBAL' && departmentId) {
-      employees = (await this.hr.listByDepartment(departmentId)).employees;
+    if (scope === 'GLOBAL') {
+      // Отдел здесь — необязательный фильтр, а не обязательный ключ:
+      // кадровику список нужен целиком, в том числе чтобы назначить
+      // отдел тому, у кого его ещё нет.
+      employees = (await this.hr.listEmployees({ query, departmentId, limit: take })).employees;
     } else if (scope === 'SUBORDINATE') {
       employees = (await this.hr.getSubordinates(user.employeeId!, -1)).employees;
     } else if (scope === 'DEPARTMENT') {
       const self = await this.hr.getEmployee(user.employeeId!);
       employees = self.department_id
-        ? (await this.hr.listByDepartment(self.department_id)).employees
+        ? (
+            await this.hr.listEmployees({
+              query,
+              departmentId: self.department_id,
+              limit: take,
+            })
+          ).employees
         : [self];
     } else if (scope === 'SELF') {
       employees = [await this.hr.getEmployee(user.employeeId!)];
-    } else if (scope === 'GLOBAL') {
-      // Без departmentId глобальная выборка потребовала бы постраничного
-      // метода, которого пока нет в контракте
-      return { employees: [], scope, note: 'укажите departmentId' };
+    }
+
+    // Область SUBORDINATE и вырожденные случаи выше приходят без поиска:
+    // выборка ограничена подчинёнными и заведомо мала, поэтому дешевле
+    // отфильтровать здесь, чем заводить отдельный вызов.
+    if (query && scope !== 'GLOBAL' && scope !== 'DEPARTMENT') {
+      const needle = query.toLowerCase();
+      employees = employees.filter(
+        (employee) =>
+          employee.full_name.toLowerCase().includes(needle) ||
+          (employee.position ?? '').toLowerCase().includes(needle),
+      );
     }
 
     return { employees: employees.map(toPublicEmployee), scope };
@@ -60,10 +82,24 @@ export class EmployeesController {
     return toPublicEmployee(await this.hr.getEmployee(id));
   }
 
+  /**
+   * Правка карточки сотрудника.
+   *
+   * Право employee/write есть и у рядового сотрудника, но со scope SELF —
+   * это «редактировать свой профиль», а не «назначить себе руководителя».
+   * Подчинённость и отдел определяют маршрут согласования и видимость
+   * данных, поэтому в области SELF эти поля отбрасываются: иначе автор
+   * заявки мог бы выбрать себе удобного согласующего.
+   */
   @Patch(':id')
   @RequirePermission({ resource: 'employee', action: 'write', ownerFrom: { param: 'id' } })
-  async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateEmployeeDto) {
-    return toPublicEmployee(await this.hr.updateEmployee({ employeeId: id, ...dto }));
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateEmployeeDto,
+    @PermissionScope() scope: string,
+  ) {
+    const patch = scope === 'SELF' ? { ...dto, departmentId: undefined, managerId: undefined } : dto;
+    return toPublicEmployee(await this.hr.updateEmployee({ employeeId: id, ...patch }));
   }
 
   /**
@@ -110,6 +146,7 @@ function toPublicEmployee(employee: EmployeeDto) {
     employeeId: employee.employee_id,
     userId: employee.user_id,
     fullName: employee.full_name,
+    position: employee.position || null,
     departmentId: employee.department_id || null,
     managerId: employee.manager_id || null,
     active: employee.active,

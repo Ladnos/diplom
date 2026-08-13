@@ -174,6 +174,23 @@ export class FileService {
   }
 
   /**
+   * Собственные загрузки сотрудника, свежие сверху.
+   *
+   * Владелец фиксируется при загрузке и не меняется при дедупликации: два
+   * человека, отправившие одно и то же содержимое, получают разные записи
+   * метаданных на один файл на диске — иначе список «мои файлы» у одного
+   * из них оказался бы чужим.
+   */
+  async listOwnFiles(ownerEmployeeId: string, limit: number, offset: number): Promise<FileMeta[]> {
+    return this.prisma.fileMeta.findMany({
+      where: { ownerEmployeeId },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(Math.max(limit, 1), 200),
+      skip: Math.max(offset, 0),
+    });
+  }
+
+  /**
    * Привязка файла к сущности. Идемпотентна.
    *
    * Счётчик растёт только вместе с появлением строки привязки, и обе

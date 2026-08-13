@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { Files, Upload } from 'lucide-vue-next';
-import { formatBytes } from '~/lib/utils';
+import { formatBytes, formatDateTime } from '~/lib/utils';
 
 const api = useApi();
 const { error, success } = useToast();
@@ -18,29 +18,48 @@ interface Uploaded {
   filename: string;
   sizeBytes: number;
   mimeType: string;
-  deduplicated: boolean;
+  createdAt?: string;
+  refcount?: number;
+  deduplicated?: boolean;
 }
 
 const quota = ref<Quota | null>(null);
-const uploaded = ref<Uploaded[]>([]);
+const files = ref<Uploaded[]>([]);
+const loading = ref(true);
 const uploading = ref<{ name: string; progress: number } | null>(null);
 const dragActive = ref(false);
 
-onMounted(loadQuota);
+onMounted(async () => {
+  await Promise.all([loadQuota(), loadFiles()]);
+  loading.value = false;
+});
 
 async function loadQuota() {
   quota.value = await api.get<Quota>('/api/files/quota').catch(() => null);
 }
 
-async function upload(files: FileList | File[]) {
-  for (const file of Array.from(files)) {
+/**
+ * Ранее загруженное.
+ *
+ * Список приходит с сервера, а не копится в памяти страницы: до этого
+ * единственным следом файла был ответ на загрузку, и обновление страницы
+ * стирало ссылку на то, что уже отправлено.
+ */
+async function loadFiles() {
+  const result = await api
+    .get<{ files: Uploaded[] }>('/api/files/my', { limit: 100 })
+    .catch(() => ({ files: [] }));
+  files.value = result.files;
+}
+
+async function upload(list: FileList | File[]) {
+  for (const file of Array.from(list)) {
     uploading.value = { name: file.name, progress: 0 };
     try {
       const result = await api.upload(file, {}, (percent) => {
         if (uploading.value) uploading.value.progress = percent;
       });
 
-      uploaded.value = [{ ...result, deduplicated: false }, ...uploaded.value];
       success(
         'Файл загружен',
         // Дедупликация не скрывается: она объясняет, почему квота не
@@ -55,7 +74,7 @@ async function upload(files: FileList | File[]) {
       uploading.value = null;
     }
   }
-  await loadQuota();
+  await Promise.all([loadQuota(), loadFiles()]);
 }
 
 function onDrop(event: DragEvent) {
@@ -133,9 +152,9 @@ const usedPercent = computed(() =>
       </div>
     </div>
 
-    <UiCard title="Загружено в этой сессии" body-class="p-0">
+    <UiCard title="Мои файлы" body-class="p-0">
       <UiEmptyState
-        v-if="uploaded.length === 0"
+        v-if="!loading && files.length === 0"
         title="Пока ничего не загружено"
         description="Файлы, приложенные к сообщениям и карточкам, видны там же"
         :icon="Files"
@@ -143,11 +162,13 @@ const usedPercent = computed(() =>
 
       <UiDataTable
         v-else
-        :rows="uploaded"
+        :loading="loading"
+        :rows="files"
         :row-key="(row) => (row as Uploaded).fileId"
         :columns="[
           { key: 'filename', label: 'Имя' },
           { key: 'mimeType', label: 'Тип' },
+          { key: 'createdAt', label: 'Загружен' },
           { key: 'sizeBytes', label: 'Размер', numeric: true },
           { key: 'actions', label: '', width: '1%' },
         ]"
@@ -155,6 +176,11 @@ const usedPercent = computed(() =>
         <template #sizeBytes="{ row }">{{ formatBytes((row as Uploaded).sizeBytes) }}</template>
         <template #mimeType="{ row }">
           <span class="text-muted-foreground text-xs">{{ (row as Uploaded).mimeType }}</span>
+        </template>
+        <template #createdAt="{ row }">
+          <span class="text-muted-foreground text-xs">
+            {{ (row as Uploaded).createdAt ? formatDateTime((row as Uploaded).createdAt!) : '—' }}
+          </span>
         </template>
         <template #actions="{ row }">
           <div class="flex justify-end">

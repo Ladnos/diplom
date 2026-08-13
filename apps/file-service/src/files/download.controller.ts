@@ -66,6 +66,39 @@ export class DownloadController {
     };
   }
 
+  /**
+   * Собственные загрузки. Так же, как и `quota`, объявлен до `:id`.
+   *
+   * Адрес именно `/api/files/my`, а не `/api/files`: nginx направляет сюда
+   * префикс со слешем, и запрос без него ушёл бы в api-gateway, где такого
+   * маршрута нет.
+   */
+  @Get('my')
+  async my(@Req() request: Request) {
+    const actor = request.actor!;
+    if (!actor.employeeId) return { files: [] };
+
+    const limit = Number.parseInt(String(request.query.limit ?? '50'), 10);
+    const offset = Number.parseInt(String(request.query.offset ?? '0'), 10);
+    const files = await this.files.listOwnFiles(
+      actor.employeeId,
+      Number.isFinite(limit) ? limit : 50,
+      Number.isFinite(offset) ? offset : 0,
+    );
+
+    return {
+      files: files.map((meta) => ({
+        fileId: meta.id,
+        filename: meta.filename,
+        mimeType: meta.mimeType,
+        sizeBytes: meta.sizeBytes,
+        visibility: meta.visibility,
+        refcount: meta.refcount,
+        createdAt: meta.createdAt.toISOString(),
+      })),
+    };
+  }
+
   /** Метаданные без содержимого: имя, размер, тип, кем загружен. */
   @Get(':id/meta')
   async meta(@Param('id', ParseUUIDPipe) id: string, @Req() request: Request) {

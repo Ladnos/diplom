@@ -13,7 +13,14 @@ import {
 } from '@crm/contracts';
 import { getRequestContext } from '@crm/common';
 import { EventPublisher } from '@crm/messaging';
-import type { Employee, EmploymentContract, EmploymentType, PaymentForm, Prisma } from '../../generated/prisma';
+import type {
+  Employee,
+  EmploymentContract,
+  EmploymentType,
+  PaymentForm,
+  Position,
+  Prisma,
+} from '../../generated/prisma';
 import { PrismaService } from '../prisma/prisma.service';
 import { outboxRow } from '../prisma/outbox.store';
 import { derivePolicy } from './employment-policy';
@@ -32,7 +39,22 @@ const DEFAULT_EMPLOYMENT = {
   rate: 1.0,
 };
 
-type EmployeeWithContract = Employee & { contracts: EmploymentContract[] };
+/**
+ * Должность хранится отдельным справочником, но по контракту наружу едет
+ * её название: идентификатор записи, у которой кроме имени ничего нет,
+ * получателю бесполезен — и в карточке сотрудника, и в списке выбора
+ * нужна именно строка. Справочник при этом остаётся: он не даёт развести
+ * «Менеджер» и «менеджер » как две разные должности.
+ */
+const EMPLOYEE_INCLUDE = {
+  contracts: { orderBy: { validFrom: 'desc' }, take: 1 },
+  position: true,
+} satisfies Prisma.EmployeeInclude;
+
+type EmployeeWithContract = Employee & {
+  contracts: EmploymentContract[];
+  position: Position | null;
+};
 
 @Injectable()
 export class StaffService {
@@ -48,7 +70,7 @@ export class StaffService {
   async getEmployee(employeeId: string): Promise<EmployeeWithContract> {
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
-      include: { contracts: { orderBy: { validFrom: 'desc' }, take: 1 } },
+      include: EMPLOYEE_INCLUDE,
     });
     if (!employee) {
       throw new RpcException({
@@ -64,7 +86,7 @@ export class StaffService {
     if (ids.length === 0) return [];
     return this.prisma.employee.findMany({
       where: { id: { in: ids } },
-      include: { contracts: { orderBy: { validFrom: 'desc' }, take: 1 } },
+      include: EMPLOYEE_INCLUDE,
     });
   }
 
@@ -74,8 +96,52 @@ export class StaffService {
   ): Promise<EmployeeWithContract[]> {
     return this.prisma.employee.findMany({
       where: { departmentId, ...(includeInactive ? {} : { active: true }) },
-      include: { contracts: { orderBy: { validFrom: 'desc' }, take: 1 } },
+      include: EMPLOYEE_INCLUDE,
       orderBy: { fullName: 'asc' },
+    });
+  }
+
+  /**
+   * Перечень сотрудников с поиском.
+   *
+   * Нужен везде, где человека выбирают из списка: назначение
+   * руководителя, приглашение в канал и в звонок. ListByDepartment для
+   * этого не годится — отдел известен не всегда, а у нового сотрудника
+   * его нет вовсе, и до назначения руководителя выбирать было бы не из
+   * кого.
+   *
+   * Поиск подстрокой по имени и должности: при нескольких сотнях
+   * сотрудников этого достаточно, а полнотекстовый индекс потребовал бы
+   * решения о языке разбора ради выпадающего списка.
+   */
+  async listEmployees(input: {
+    query?: string;
+    departmentId?: string;
+    includeInactive?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<EmployeeWithContract[]> {
+    const query = (input.query ?? '').trim();
+
+    return this.prisma.employee.findMany({
+      where: {
+        ...(input.includeInactive ? {} : { active: true }),
+        ...(input.departmentId ? { departmentId: input.departmentId } : {}),
+        ...(query
+          ? {
+              OR: [
+                { fullName: { contains: query, mode: 'insensitive' } },
+                { position: { name: { contains: query, mode: 'insensitive' } } },
+              ],
+            }
+          : {}),
+      },
+      include: EMPLOYEE_INCLUDE,
+      orderBy: { fullName: 'asc' },
+      // Предел сверху обязателен: выпадающий список не должен тянуть всю
+      // компанию, а без него первый же запрос без параметров это сделает.
+      take: Math.min(Math.max(input.limit ?? 50, 1), 500),
+      skip: Math.max(input.offset ?? 0, 0),
     });
   }
 
@@ -92,7 +158,7 @@ export class StaffService {
     while (current?.managerId && !visited.has(current.managerId)) {
       const manager = await this.prisma.employee.findUnique({
         where: { id: current.managerId },
-        include: { contracts: { orderBy: { validFrom: 'desc' }, take: 1 } },
+        include: EMPLOYEE_INCLUDE,
       });
       if (!manager) break;
 
@@ -113,7 +179,7 @@ export class StaffService {
     while (frontier.length > 0 && (depth < 0 || level < depth)) {
       const batch = await this.prisma.employee.findMany({
         where: { managerId: { in: frontier }, active: true },
-        include: { contracts: { orderBy: { validFrom: 'desc' }, take: 1 } },
+        include: EMPLOYEE_INCLUDE,
       });
       if (batch.length === 0) break;
 
@@ -245,7 +311,8 @@ export class StaffService {
       email: string;
       fullName: string;
       departmentId?: string;
-      positionId?: string;
+      /** Название должности; справочная запись заводится при необходимости. */
+      position?: string;
       managerId?: string;
       type?: EmploymentType;
       paymentForm?: PaymentForm;
@@ -259,14 +326,24 @@ export class StaffService {
     const policy = derivePolicy(type, paymentForm);
     const validFrom = input.hiredAt ? new Date(input.hiredAt) : new Date();
 
+    const positionName = input.position?.trim();
+
     return this.prisma.$transaction(async (tx) => {
+      const position = positionName
+        ? await tx.position.upsert({
+            where: { name: positionName },
+            update: {},
+            create: { name: positionName },
+          })
+        : null;
+
       const employee = await tx.employee.create({
         data: {
           userId: input.userId,
           email: input.email.trim().toLowerCase(),
           fullName: input.fullName,
           departmentId: input.departmentId ?? null,
-          positionId: input.positionId ?? null,
+          positionId: position?.id ?? null,
           managerId: input.managerId ?? null,
           hiredAt: validFrom,
           contracts: {
@@ -288,7 +365,7 @@ export class StaffService {
           userId: employee.userId,
           fullName: employee.fullName,
           departmentId: employee.departmentId ?? undefined,
-          position: employee.positionId ?? undefined,
+          position: position?.name,
           managerId: employee.managerId ?? undefined,
           employment: { type, paymentForm, policy, rate: input.rate ?? 1 },
         },
@@ -311,7 +388,8 @@ export class StaffService {
       employeeId: string;
       fullName?: string;
       departmentId?: string;
-      positionId?: string;
+      /** Название должности; справочная запись заводится при необходимости. */
+      position?: string;
       managerId?: string;
       avatarFileId?: string;
     },
@@ -330,8 +408,16 @@ export class StaffService {
       data.department = input.departmentId ? { connect: { id: input.departmentId } } : { disconnect: true };
       changed.departmentId = input.departmentId;
     }
-    if (input.positionId !== undefined && input.positionId !== before.positionId) {
-      data.position = input.positionId ? { connect: { id: input.positionId } } : { disconnect: true };
+    if (input.position !== undefined && input.position !== (before.position?.name ?? '')) {
+      const name = input.position.trim();
+      // connectOrCreate вместо connect по идентификатору: справочник
+      // должностей никто не ведёт отдельным экраном, и требовать сначала
+      // завести запись, а потом сослаться на неё, значило бы сделать поле
+      // «должность» нередактируемым на практике.
+      data.position = name
+        ? { connectOrCreate: { where: { name }, create: { name } } }
+        : { disconnect: true };
+      changed.position = name;
     }
     if (input.avatarFileId !== undefined && input.avatarFileId !== before.avatarFileId) {
       data.avatarFileId = input.avatarFileId;

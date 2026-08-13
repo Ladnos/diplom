@@ -36,6 +36,13 @@ interface StaffGrpc {
     department_id: string;
     include_inactive?: boolean;
   }): Observable<{ employees: EmployeeDto[] }>;
+  ListEmployees(data: {
+    query?: string;
+    department_id?: string;
+    include_inactive?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Observable<{ employees: EmployeeDto[] }>;
   GetSubordinates(data: { manager_id: string; depth: number }): Observable<{ employees: EmployeeDto[] }>;
   GetManagerChain(data: { employee_id: string }): Observable<{ employees: EmployeeDto[] }>;
   GetEmploymentInfo(data: { employee_id: string }): Observable<EmploymentDto>;
@@ -49,6 +56,7 @@ interface StaffGrpc {
   UpdateEmployee(data: {
     employee_id: string;
     full_name?: string;
+    position?: string;
     department_id?: string;
     manager_id?: string;
     avatar_file_id?: string;
@@ -91,6 +99,27 @@ export class HrClient implements OnModuleInit {
     );
   }
 
+  /** Перечень с поиском — для выпадающих списков выбора сотрудника. */
+  listEmployees(input: {
+    query?: string;
+    departmentId?: string;
+    includeInactive?: boolean;
+    limit?: number;
+    offset?: number;
+  }) {
+    return firstValueFrom(
+      this.staff
+        .ListEmployees({
+          query: input.query ?? '',
+          department_id: input.departmentId ?? '',
+          include_inactive: input.includeInactive ?? false,
+          limit: input.limit ?? 50,
+          offset: input.offset ?? 0,
+        })
+        .pipe(timeout(DEADLINES_MS.DEFAULT)),
+    );
+  }
+
   getSubordinates(managerId: string, depth = 1) {
     return firstValueFrom(
       this.staff.GetSubordinates({ manager_id: managerId, depth }).pipe(timeout(DEADLINES_MS.DEFAULT)),
@@ -126,6 +155,7 @@ export class HrClient implements OnModuleInit {
   updateEmployee(input: {
     employeeId: string;
     fullName?: string;
+    position?: string;
     departmentId?: string;
     managerId?: string;
     avatarFileId?: string;
@@ -135,6 +165,7 @@ export class HrClient implements OnModuleInit {
         .UpdateEmployee({
           employee_id: input.employeeId,
           full_name: input.fullName,
+          position: input.position,
           department_id: input.departmentId,
           manager_id: input.managerId,
           avatar_file_id: input.avatarFileId,

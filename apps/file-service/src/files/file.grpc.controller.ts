@@ -90,6 +90,16 @@ export class FileGrpcController {
     return {};
   }
 
+  @GrpcMethod('FileService', 'ListOwnFiles')
+  async listOwnFiles(data: { owner_employee_id: string; limit?: number; offset?: number }) {
+    const files = await this.files.listOwnFiles(
+      data.owner_employee_id,
+      data.limit || 50,
+      data.offset || 0,
+    );
+    return { files: files.map(mapMeta) };
+  }
+
   @GrpcMethod('FileService', 'GetQuotaUsage')
   async getQuotaUsage(data: { owner_employee_id: string }) {
     const usage = await this.files.quotaUsage(data.owner_employee_id);

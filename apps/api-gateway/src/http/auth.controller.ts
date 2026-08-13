@@ -86,8 +86,10 @@ export class AuthController {
         ? {
             employeeId: employee.employee_id,
             fullName: employee.full_name,
+            position: employee.position || null,
             departmentId: employee.department_id || null,
             managerId: employee.manager_id || null,
+            avatarFileId: employee.avatar_file_id || null,
             active: employee.active,
             employment: employee.employment
               ? {

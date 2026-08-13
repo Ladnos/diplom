@@ -159,6 +159,16 @@ export function useCall() {
   }
 
   async function publish(withVideo: boolean) {
+    // navigator.mediaDevices существует только в защищённом контексте:
+    // по http со всего, кроме localhost, свойства просто нет, и обращение
+    // к нему падает с TypeError, из которого причина не читается.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error(
+        'Браузер не даёт доступ к камере: страница открыта по http не с localhost. ' +
+          'Откройте http://localhost:8080 или подключите https.',
+      );
+    }
+
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
       video: withVideo ? { width: 1280, height: 720 } : false,

@@ -132,7 +132,12 @@ const isActive = (to: string) => (to === '/' ? route.path === '/' : route.path.s
       </nav>
 
       <div class="border-t p-3">
-        <div class="flex items-center gap-3 px-2 py-1.5">
+        <NuxtLink
+          to="/profile"
+          class="hover:bg-accent/50 flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors"
+          title="Свой профиль"
+          @click="sidebarOpen = false"
+        >
           <UiAvatar :name="auth.fullName" :id="auth.employeeId ?? undefined" size="sm" />
           <div class="min-w-0 flex-1">
             <p class="truncate text-xs font-medium">{{ auth.fullName }}</p>
@@ -140,7 +145,7 @@ const isActive = (to: string) => (to === '/' ? route.path === '/' : route.path.s
               {{ auth.roles.join(', ') || 'без ролей' }}
             </p>
           </div>
-        </div>
+        </NuxtLink>
         <UiButton variant="ghost" size="sm" class="mt-1 w-full justify-start" @click="auth.logout()">
           <LogOut class="size-4" />
           Выйти

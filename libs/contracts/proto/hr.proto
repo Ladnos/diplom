@@ -102,6 +102,11 @@ service StaffService {
   rpc GetEmployee(EmployeeId) returns (Employee);
   rpc GetEmployeesBatch(common.Ids) returns (EmployeeList);  // защита от N+1
   rpc ListByDepartment(DepartmentRequest) returns (EmployeeList);
+  // Перечень сотрудников с поиском. Нужен там, где человека выбирают из
+  // списка: назначение руководителя, приглашение в канал и в звонок.
+  // ListByDepartment для этого не годится — отдел известен не всегда, а
+  // до назначения руководителя его нет вовсе.
+  rpc ListEmployees(ListEmployeesRequest) returns (EmployeeList);
   rpc GetManagerChain(EmployeeId) returns (EmployeeList);
   rpc GetSubordinates(SubordinatesRequest) returns (EmployeeList);
   rpc IsManagerOf(RelationRequest) returns (common.BoolResult);
@@ -121,6 +126,15 @@ message EmployeeId {
 message DepartmentRequest {
   string department_id = 1;
   bool include_inactive = 2;
+}
+
+message ListEmployeesRequest {
+  // Подстрока имени или должности. Пусто — весь список.
+  string query = 1;
+  string department_id = 2;
+  bool include_inactive = 3;
+  int32 limit = 4;
+  int32 offset = 5;
 }
 
 message SubordinatesRequest {

@@ -23,6 +23,10 @@ const comment = ref('');
 
 const form = ref({ type: '', from: '', to: '', reason: '', minutes: 60, date: '' });
 
+// Заявку можно открыть по ссылке из сводки или уведомления. Считываем в
+// setup: после await композиции Nuxt теряют контекст приложения.
+const requestFromQuery = useRoute().query.id;
+
 const canApprove = computed(() => auth.isManager || auth.isHr);
 const rows = computed(() => (tab.value === 'my' ? my.value : inbox.value));
 
@@ -30,10 +34,10 @@ onMounted(async () => {
   await Promise.all([loadMy(), loadTypes(), canApprove.value ? loadInbox() : Promise.resolve()]);
   loading.value = false;
 
-  // Заявку можно открыть по ссылке из сводки или уведомления
-  const id = useRoute().query.id as string | undefined;
-  if (id) {
-    const found = [...my.value, ...inbox.value].find((item) => item.requestId === id);
+  if (typeof requestFromQuery === 'string' && requestFromQuery) {
+    const found = [...my.value, ...inbox.value].find(
+      (item) => item.requestId === requestFromQuery,
+    );
     if (found) openDecision(found);
   }
 });

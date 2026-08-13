@@ -74,13 +74,18 @@ function applyRemoteMove(payload: Record<string, unknown>) {
   card.version = Number(payload.version);
 }
 
+/**
+ * Раскладка карточек по колонкам.
+ *
+ * Закрытые карточки остаются на доске: попадание в колонку «Готово»
+ * проставляет closedAt, и прятать их значило бы, что карточка исчезает
+ * ровно в тот момент, когда её туда перетащили. Из вида их убирает
+ * архивация колонки, а не сам факт завершения.
+ */
 const byColumn = computed(() => {
   const map = new Map<string, Card[]>();
   for (const column of board.value?.columns ?? []) map.set(column.columnId, []);
-  for (const card of cards.value) {
-    if (card.closedAt) continue;
-    map.get(card.columnId)?.push(card);
-  }
+  for (const card of cards.value) map.get(card.columnId)?.push(card);
   for (const list of map.values()) list.sort((a, b) => a.position - b.position);
   return map;
 });
@@ -220,11 +225,19 @@ function openCreate(columnId: string) {
             :key="card.cardId"
             draggable="true"
             class="bg-card cursor-grab rounded-lg border p-3 shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing"
-            :class="dragging === card.cardId && 'opacity-50'"
+            :class="[
+              dragging === card.cardId && 'opacity-50',
+              card.closedAt && 'border-dashed',
+            ]"
             @dragstart="onDragStart(card)"
             @dragend="dragging = null"
           >
-            <p class="text-sm leading-snug font-medium">{{ card.title }}</p>
+            <p
+              class="text-sm leading-snug font-medium"
+              :class="card.closedAt && 'text-muted-foreground line-through'"
+            >
+              {{ card.title }}
+            </p>
 
             <div class="mt-2 flex flex-wrap items-center gap-1.5">
               <UiBadge v-for="label in card.labels" :key="label.labelId" variant="outline">

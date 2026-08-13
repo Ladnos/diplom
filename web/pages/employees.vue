@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { Users } from 'lucide-vue-next';
 import { useApi } from '~/composables/useApi';
 import { EMPLOYMENT_TYPES, PAYMENT_FORMS, TIME_POLICIES } from '~/lib/domain';
@@ -11,6 +11,7 @@ const { run, success } = useToast();
 const loading = ref(true);
 const employees = ref<EmployeeRow[]>([]);
 const search = ref('');
+const note = ref('');
 
 const editOpen = ref(false);
 const active = ref<EmployeeRow | null>(null);
@@ -18,25 +19,30 @@ const form = ref({ position: '', departmentId: '', managerId: '' });
 
 onMounted(load);
 
+/**
+ * Поиск идёт на сервере, а не по загруженному списку: выдача ограничена
+ * правами и объёмом, и человек, не попавший в первую сотню, при
+ * локальной фильтрации не нашёлся бы вовсе.
+ */
+let timer: ReturnType<typeof setTimeout> | undefined;
+watch(search, () => {
+  clearTimeout(timer);
+  timer = setTimeout(() => void load(), 250);
+});
+
 async function load() {
   loading.value = true;
   try {
-    const result = await api.get<{ employees: EmployeeRow[] }>('/api/employees', { limit: 200 });
+    const result = await api.get<{ employees: EmployeeRow[]; note?: string }>('/api/employees', {
+      limit: 200,
+      search: search.value.trim() || undefined,
+    });
     employees.value = result.employees;
+    note.value = result.note ?? '';
   } finally {
     loading.value = false;
   }
 }
-
-const filtered = computed(() => {
-  const query = search.value.trim().toLowerCase();
-  if (!query) return employees.value;
-  return employees.value.filter(
-    (item) =>
-      item.fullName.toLowerCase().includes(query) ||
-      (item.position ?? '').toLowerCase().includes(query),
-  );
-});
 
 function edit(employee: EmployeeRow) {
   active.value = employee;
@@ -65,17 +71,6 @@ async function save() {
   success('Карточка обновлена', 'Изменение руководителя перестроит маршруты согласования');
   await load();
 }
-
-/**
- * Руководителем можно назначить любого, кроме самого сотрудника: цикл в
- * оргструктуре сломал бы построение маршрута согласования.
- */
-const managerOptions = computed(() => [
-  { value: '', label: 'Без руководителя' },
-  ...employees.value
-    .filter((item) => item.active && item.employeeId !== active.value?.employeeId)
-    .map((item) => ({ value: item.employeeId, label: item.fullName })),
-]);
 </script>
 
 <template>
@@ -92,16 +87,16 @@ const managerOptions = computed(() => [
 
     <UiCard body-class="p-0">
       <UiEmptyState
-        v-if="!loading && filtered.length === 0"
+        v-if="!loading && employees.length === 0"
         title="Никого не нашлось"
-        :description="search ? 'Попробуйте изменить запрос' : 'Список сотрудников пуст'"
+        :description="note || (search ? 'Попробуйте изменить запрос' : 'Список сотрудников пуст')"
         :icon="Users"
       />
 
       <UiDataTable
         v-else
         :loading="loading"
-        :rows="filtered"
+        :rows="employees"
         :row-key="(row) => (row as EmployeeRow).employeeId"
         :columns="[
           { key: 'fullName', label: 'Сотрудник' },
@@ -169,17 +164,27 @@ const managerOptions = computed(() => [
           <UiInput v-model="form.position" placeholder="Например, ведущий инженер" />
         </div>
 
+        <!-- Руководителем можно назначить любого, кроме самого сотрудника:
+             цикл в оргструктуре сломал бы построение маршрута согласования -->
         <div class="space-y-1.5">
           <label class="text-sm font-medium">Руководитель</label>
-          <UiSelect v-model="form.managerId" :options="managerOptions" placeholder="Не назначен" />
+          <EmployeePicker
+            v-model="form.managerId"
+            :exclude="active ? [active.employeeId] : []"
+            placeholder="Найти руководителя"
+          />
           <p class="text-muted-foreground text-xs">
-            От него строится маршрут согласования и права на подчинённых
+            От него строится маршрут согласования и права на подчинённых. Пока руководителя нет,
+            заявки сотрудника утверждаются сразу — согласовывать их некому.
           </p>
         </div>
 
         <div class="space-y-1.5">
           <label class="text-sm font-medium">Отдел</label>
-          <UiInput v-model="form.departmentId" placeholder="UUID отдела" />
+          <UiInput v-model="form.departmentId" placeholder="Идентификатор отдела" />
+          <p class="text-muted-foreground text-xs">
+            Отделы заводит кадровая служба — здесь указывается готовый идентификатор
+          </p>
         </div>
 
         <div class="flex justify-end gap-2">

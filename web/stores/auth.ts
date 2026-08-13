@@ -10,8 +10,10 @@ export interface Employment {
 export interface Employee {
   employeeId: string;
   fullName: string;
+  position: string | null;
   departmentId: string | null;
   managerId: string | null;
+  avatarFileId: string | null;
   active: boolean;
   employment: Employment | null;
 }

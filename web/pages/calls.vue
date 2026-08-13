@@ -11,13 +11,23 @@ const call = useCall();
 const realtime = useRealtime();
 const { run, error } = useToast();
 
+/**
+ * Комната из адреса — сюда переходят из переписки кнопкой «Позвонить».
+ *
+ * Читается здесь, а не в onMounted: композиции Nuxt требуют контекста
+ * приложения, и вызов useRoute() после первого await в асинхронном
+ * хуке падает с «nuxt instance unavailable». Ошибка обрывала весь хук,
+ * и переход из чата заканчивался страницей без звонка.
+ */
+const roomFromQuery = useRoute().query.room;
+
 const active = ref<Call[]>([]);
 const loading = ref(true);
 const inRoom = ref<string | null>(null);
 const localVideo = ref<HTMLVideoElement | null>(null);
 
 const createOpen = ref(false);
-const invited = ref('');
+const invited = ref<string[]>([]);
 const title = ref('');
 
 const unsubscribers: (() => void)[] = [];
@@ -29,8 +39,7 @@ onMounted(async () => {
   // Приглашение приходит уведомлением с приоритетом URGENT (§7.3)
   unsubscribers.push(realtime.on('video.call.started', () => void load()));
 
-  const room = useRoute().query.room as string | undefined;
-  if (room) await enter(room);
+  if (typeof roomFromQuery === 'string' && roomFromQuery) await enter(roomFromQuery);
 });
 
 onUnmounted(() => {
@@ -48,16 +57,15 @@ async function start() {
     () =>
       api.post<Call & { join: JoinTicket }>('/api/calls', {
         title: title.value || 'Звонок',
-        invitedEmployeeIds: invited.value
-          .split(/[\s,]+/)
-          .map((item) => item.trim())
-          .filter(Boolean),
+        invitedEmployeeIds: invited.value,
       }),
     'Звонок создан',
   );
   if (!created) return;
 
   createOpen.value = false;
+  invited.value = [];
+  title.value = '';
   await connect(created.roomId, created.join);
 }
 
@@ -254,7 +262,12 @@ function nameOf(employeeId: string): string {
         </div>
         <div class="space-y-1.5">
           <label class="text-sm font-medium">Участники</label>
-          <UiTextarea v-model="invited" placeholder="Идентификаторы сотрудников через запятую" />
+          <EmployeePicker
+            v-model="invited"
+            multiple
+            :exclude="auth.employeeId ? [auth.employeeId] : []"
+            placeholder="Кого позвать"
+          />
           <p class="text-muted-foreground text-xs">
             Приглашённым уйдёт уведомление с высшим приоритетом — оно проходит сквозь тихие часы
           </p>

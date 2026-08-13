@@ -58,15 +58,16 @@ export class BoardsController {
   async list(@CurrentUser() user: AuthenticatedUser) {
     const employeeId = requireEmployee(user);
     const result = await this.tasks.listBoards(employeeId);
-    return {
-      boards: result.boards.map((board) => ({
-        boardId: board.board_id,
-        name: board.name,
-        departmentId: board.department_id || null,
-        columns: board.columns.length,
-        members: board.members.length,
-      })),
-    };
+
+    // Форма ответа совпадает с GET /api/boards/:id, только без карточек.
+    // Возвращать здесь счётчики вместо списков означало бы, что поля
+    // columns и members у двух соседних методов значат разное, и клиенту
+    // пришлось бы держать два описания одной сущности.
+    const names = await this.resolveNames(
+      result.boards.flatMap((board) => (board.members ?? []).map((member) => member.employee_id)),
+    );
+
+    return { boards: result.boards.map((board) => toPublicBoard(board, names)) };
   }
 
   @Post()
