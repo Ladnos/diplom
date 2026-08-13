@@ -201,6 +201,13 @@ services:
       TURN_PORT: ${TURN_PORT:-3478}
       TURN_USER: ${TURN_USER:-crm}
       TURN_PASSWORD: ${TURN_PASSWORD:-crm}
+      # Пропуск в комнату звонка. Подписывается этим ключом и проверяется
+      # сигналингом локально, без обращения к auth-service (§8.3).
+      VIDEO_JOIN_TOKEN_SECRET: ${VIDEO_JOIN_TOKEN_SECRET:?переменная VIDEO_JOIN_TOKEN_SECRET обязательна}
+      VIDEO_JOIN_TOKEN_TTL: ${VIDEO_JOIN_TOKEN_TTL:-60}
+      VIDEO_SIGNALING_URL: ${VIDEO_SIGNALING_URL:-/signaling}
+      # Ноль означает «по числу ядер».
+      MEDIASOUP_WORKERS: ${MEDIASOUP_WORKERS:-0}
 
   file-service:
     <<: [*service-base, *logging]

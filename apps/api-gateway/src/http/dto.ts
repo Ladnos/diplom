@@ -836,6 +836,43 @@ export class HistoryQuery {
   threadRootId?: string;
 }
 
+// ── Звонки ──────────────────────────────────────────────────────────────
+
+export class CreateCallDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  title?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  invitedEmployeeIds?: string[];
+
+  /** Звонок из канала: по нему chat-service положит запись о завершении. */
+  @IsOptional()
+  @IsUUID()
+  channelId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  cardId?: string;
+}
+
+export class ModerateCallDto {
+  @IsUUID()
+  employeeId!: string;
+
+  /**
+   * KICK здесь нет: исключить участника можно только из живого
+   * соединения, а им управляет сигналинг. Отметка в базе без разрыва
+   * соединения означала бы, что исключённый продолжает слышать разговор.
+   */
+  @IsIn(['MUTE', 'UNMUTE', 'GRANT_MODERATOR'])
+  action!: string;
+}
+
 export class MessageSearchQuery {
   @IsString()
   @Length(2, 200)

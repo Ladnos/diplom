@@ -34,6 +34,9 @@ COPY apps/file-service/package.json         apps/file-service/
 COPY apps/notification-service/package.json apps/notification-service/
 COPY apps/analytics-service/package.json    apps/analytics-service/
 
+# Воркер mediasoup этому образу не нужен — см. apps/api-gateway/Dockerfile
+ENV MEDIASOUP_WORKER_BIN=/nonexistent
+
 RUN npm ci
 
 COPY libs ./libs

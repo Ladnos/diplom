@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ChatClient, type ChannelDto, type MessageDto } from '../clients/chat.client';
 import { FileClient, toPublicAttachment, type FileMetaDto } from '../clients/file.client';
+import { VideoClient } from '../clients/video.client';
 import { HrClient } from '../clients/hr.client';
 import type { AuthenticatedUser } from '../auth/auth.guard';
 import { CurrentUser, RequirePermission } from '../auth/permission.guard';
@@ -46,6 +47,7 @@ export class ChannelsController {
     private readonly chat: ChatClient,
     private readonly hr: HrClient,
     private readonly files: FileClient,
+    private readonly video: VideoClient,
   ) {}
 
   @Get()
@@ -205,6 +207,50 @@ export class ChannelsController {
         unread: item.unread,
         mentions: item.mentions,
       })),
+    };
+  }
+
+  /**
+   * Звонок из канала. docs/architecture.md §8.3
+   *
+   * Приглашаются все участники канала: звонок в переписке — это звонок
+   * тем, с кем переписываешься, а выбирать из них подмножество означало
+   * бы завести отдельный разговор внутри общего.
+   *
+   * channelId уходит в комнату, и по нему chat-service положит в
+   * переписку системную запись о завершении — так через неделю по каналу
+   * видно, что решение принимали голосом.
+   */
+  @Post(':id/call')
+  @HttpCode(201)
+  @RequirePermission({ resource: 'channel', action: 'write' })
+  async startCall(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
+    const employeeId = requireEmployee(user);
+    // Канал запрашивается с проверкой участия: звонок в чужую переписку
+    // не должен начинаться даже при угаданном идентификаторе.
+    const channel = await this.chat.getChannel(id, employeeId);
+
+    const room = await this.video.createRoom({
+      title: channel.name || 'Звонок',
+      initiatorEmployeeId: employeeId,
+      invitedEmployeeIds: channel.member_employee_ids.filter((item) => item !== employeeId),
+      channelId: channel.channel_id,
+    });
+    const join = await this.video.issueJoinToken(room.room_id, employeeId);
+
+    return {
+      roomId: room.room_id,
+      channelId: channel.channel_id,
+      participants: room.participants.length,
+      join: {
+        token: join.token,
+        signalingUrl: join.signaling_url,
+        iceServers: join.ice_servers.map((server) => ({
+          urls: server.urls,
+          ...(server.username ? { username: server.username, credential: server.credential } : {}),
+        })),
+        expiresAt: new Date(Number(join.expires_at)).toISOString(),
+      },
     };
   }
 

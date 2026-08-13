@@ -34,6 +34,13 @@ COPY apps/file-service/package.json         apps/file-service/
 COPY apps/notification-service/package.json apps/notification-service/
 COPY apps/analytics-service/package.json    apps/analytics-service/
 
+# npm ci в монорепозитории ставит зависимости ВСЕХ workspace-пакетов, а
+# среди них mediasoup, чей postinstall собирает нативный воркер и требует
+# python с компилятором. Этому образу воркер не нужен: переменная
+# MEDIASOUP_WORKER_BIN отключает и скачивание, и сборку. Собирает воркер
+# по-настоящему только apps/video-service/Dockerfile.
+ENV MEDIASOUP_WORKER_BIN=/nonexistent
+
 RUN npm ci
 
 COPY libs ./libs

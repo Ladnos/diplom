@@ -49,6 +49,12 @@ const ROLES: { code: string; name: string; grants: Grant[] }[] = [
       // берётся из токена и в запрос не передаётся.
       { resource: 'notification', action: 'read', scope: 'SELF' },
       { resource: 'notification', action: 'write', scope: 'SELF' },
+      // Звонки. Область SELF означает «свои звонки»: кто в них участник,
+      // решает не RBAC, а состав комнаты в video-service — как участие в
+      // доске и в канале. Право здесь отвечает лишь на вопрос, может ли
+      // человек звонить вообще.
+      { resource: 'call', action: 'read', scope: 'SELF' },
+      { resource: 'call', action: 'write', scope: 'SELF' },
     ],
   },
   {

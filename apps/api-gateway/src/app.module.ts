@@ -13,6 +13,7 @@ import { TaskClient } from './clients/task.client';
 import { NotificationClient } from './clients/notification.client';
 import { ChatClient } from './clients/chat.client';
 import { FileClient } from './clients/file.client';
+import { VideoClient } from './clients/video.client';
 import { RedisService } from './cache/redis.service';
 import { JwtAuthGuard } from './auth/auth.guard';
 import { PermissionGuard } from './auth/permission.guard';
@@ -31,6 +32,7 @@ import { RequestsController } from './http/requests.controller';
 import { BoardsController, CardsController } from './http/kanban.controller';
 import { NotificationsController } from './http/notifications.controller';
 import { ChannelsController, MessagesController } from './http/chat.controller';
+import { CallsController } from './http/calls.controller';
 
 /**
  * Корневой модуль api-gateway.
@@ -77,6 +79,7 @@ import { ChannelsController, MessagesController } from './http/chat.controller';
     NotificationsController,
     ChannelsController,
     MessagesController,
+    CallsController,
     RealtimeEventsController,
   ],
   providers: [
@@ -93,6 +96,7 @@ import { ChannelsController, MessagesController } from './http/chat.controller';
     NotificationClient,
     ChatClient,
     FileClient,
+    VideoClient,
     RedisService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionGuard },

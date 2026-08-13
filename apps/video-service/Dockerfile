@@ -13,8 +13,14 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# openssl нужен движку запросов Prisma
-RUN apk add --no-cache openssl
+# openssl нужен движку запросов Prisma.
+#
+# Остальное — для mediasoup: его воркер написан на C++ и в alpine
+# собирается из исходников. Готовые сборки, которые пакет скачивает на
+# glibc-системах, к musl не подходят, поэтому нужны компилятор, python,
+# meson и ninja. Сборка занимает несколько минут и происходит один раз —
+# на стадии builder, в рантайм эти пакеты не попадают.
+RUN apk add --no-cache openssl python3 py3-pip build-base linux-headers cmake ninja
 
 # Манифесты копируются до исходников: слой с npm ci переиспользуется, пока
 # не менялись зависимости, и пересборка после правки кода не тянет установку.
@@ -59,7 +65,10 @@ WORKDIR /app
 
 # tini как init: без него node становится PID 1 и не получает SIGTERM,
 # из-за чего graceful shutdown не срабатывает и docker stop бьёт по таймауту.
-RUN apk add --no-cache openssl tini \
+# libstdc++ — рантайм-зависимость собранного воркера mediasoup: сам
+# бинарник переезжает из builder вместе с node_modules, а стандартной
+# библиотеки C++ в чистом alpine нет, и воркер не запустился бы.
+RUN apk add --no-cache openssl tini libstdc++ \
  && addgroup -S crm \
  && adduser -S -G crm -h /app crm
 
