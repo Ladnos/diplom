@@ -23,6 +23,8 @@
     "lint": "eslint \"{apps,libs}/**/*.ts\" --fix",
     "format": "prettier --write \"{apps,libs}/**/*.ts\"",
     "test": "npm run test --workspaces --if-present",
+    "setup": "bash scripts/setup.sh",
+    "//setup": "Первый запуск целиком: секреты, сборка, стенд, схемы БД. Из зависимостей нужен только docker — сам npm для него не обязателен, эта запись лишь для единообразия команд.",
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d",
     "docker:up:infra": "docker compose up -d postgres redis rabbitmq",
