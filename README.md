@@ -12,15 +12,43 @@ Open source, self-hosted CRM: кадровый учёт и графики раб
 
 ## Быстрый старт
 
+### 1. Настройки
+
 ```bash
-cp .env.example .env          # обязательно поменяйте секреты
+cp .env.example .env
+```
+
+Восемь переменных **обязательны** — без них compose откажется стартовать, и
+это лучше, чем работающая установка с предсказуемыми ключами:
+
+| Переменная | Зачем |
+|---|---|
+| `POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_SERVICE_PASSWORD` | Доступ к базам |
+| `REDIS_PASSWORD`, `RABBITMQ_PASSWORD` | Доступ к кэшу и брокеру |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Подпись токенов |
+| `FILE_SIGNED_LINK_SECRET` | Подпись ссылок на аватары; тот же ключ подставляется в nginx |
+| `VIDEO_JOIN_TOKEN_SECRET` | Пропуск в комнату звонка |
+
+Сгенерировать разом:
+
+```bash
+for key in JWT_ACCESS_SECRET JWT_REFRESH_SECRET FILE_SIGNED_LINK_SECRET VIDEO_JOIN_TOKEN_SECRET; do
+  echo "$key=$(openssl rand -hex 32)"
+done
+```
+
+### 2. Запуск
+
+```bash
 docker compose up -d
 ```
 
-Приложение поднимется на <http://localhost:8080>.
+Поднимется 15 контейнеров: nginx, десять сервисов, PostgreSQL, Redis,
+RabbitMQ и разовый сборщик интерфейса. Первая сборка занимает минут
+пятнадцать — дольше всего собирается нативный воркер mediasoup для SFU.
 
-При первом запуске PostgreSQL сам создаст 9 баз и ролей — по одной на сервис.
-Дальше нужно создать таблицы:
+PostgreSQL при первом запуске сам создаст девять баз и ролей, по одной на
+сервис. Таблицы нужно создать отдельно:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
@@ -28,13 +56,59 @@ npm install
 npm run prisma:push
 ```
 
-Проверить, что всё живо:
+### 3. Открыть
+
+> ### 🌐 <http://localhost:8080>
+
+Порт задаётся переменной `PUBLIC_HTTP_PORT`. По этому же адресу живёт и
+API — `nginx` раскладывает запросы сам:
+
+| Адрес | Куда идёт |
+|---|---|
+| `/` | Интерфейс: статика Nuxt с history-fallback |
+| `/api/files/upload`, `/api/files/…` | Напрямую в `file-service`, минуя шлюз |
+| `/api/…` | `api-gateway` |
+| `/ws` | WebSocket-слой шлюза |
+| `/signaling` | Сигналинг звонков, напрямую в `video-service` |
+| `/media/…` | Аватары и превью по подписанной ссылке |
+
+### 4. Первый вход
+
+Учётная запись администратора создаётся при старте, если в системе ещё нет
+ни одного администратора. Адрес задан в `BOOTSTRAP_ADMIN_EMAIL`
+(по умолчанию `admin@example.local`), а пароль, если он не указан явно,
+генерируется и один раз печатается в журнал:
 
 ```bash
-docker compose ps                          # все контейнеры healthy
-curl http://localhost:8080/healthz          # nginx
-curl http://localhost:3002/health/ready     # hr-service + его БД
+docker compose logs auth-service | grep -A 6 "СОЗДАН АДМИНИСТРАТОР"
 ```
+
+Сгенерированный пароль показывается **ровно один раз**: в базе лежит
+только его хэш, и взять его больше неоткуда. Если строка не нашлась —
+администратор уже был создан раньше.
+
+Либо зарегистрируйтесь сами на <http://localhost:8080/register> — профиль
+сотрудника создастся автоматически по событию.
+
+### Проверить, что всё живо
+
+```bash
+docker compose ps                        # контейнеры healthy, web — Exited (0)
+curl http://localhost:8080/healthz       # nginx
+curl -I http://localhost:8080/           # интерфейс отдаётся
+```
+
+Контейнер `web` в списке будет остановленным, и это норма: он собирает
+статику в общий том и завершается. Раздаёт её `nginx`.
+
+### Разработка интерфейса
+
+```bash
+cd web && npm install && npm run dev     # http://localhost:3000
+```
+
+Стенд при этом должен быть поднят: Nuxt проксирует `/api`, `/ws`,
+`/signaling` и `/media` на `:8080`. Подробнее — [`web/README.md`](web/README.md).
 
 ---
 
