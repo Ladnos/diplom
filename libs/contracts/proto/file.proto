@@ -55,6 +55,11 @@ message SignedLinkRequest {
   string actor_employee_id = 2;
   int32 ttl_seconds = 3;
   bool thumbnail = 4;
+  // Адрес клиента входит в подпись ($remote_addr в secure_link_md5),
+  // поэтому ссылку нельзя переслать другому человеку. Значение
+  // подставляет api-gateway из заголовка X-Real-IP, который ставит
+  // nginx: сам file-service клиента при этом вызове не видит.
+  string client_ip = 5;
 }
 
 message SignedLink {

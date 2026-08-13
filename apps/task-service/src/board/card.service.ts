@@ -185,6 +185,7 @@ export class CardService {
     dueDate?: string | null;
     estimateMinutes?: number;
     labelIds?: string[];
+    attachmentFileIds?: string[];
   }) {
     const data: Prisma.CardUpdateInput = {};
     if (input.title !== undefined) data.title = input.title;
@@ -193,6 +194,12 @@ export class CardService {
       data.dueDate = input.dueDate ? new Date(input.dueDate) : null;
     }
     if (input.estimateMinutes !== undefined) data.estimateMinutes = input.estimateMinutes;
+    // Карточка хранит только идентификаторы: сами файлы и счётчик ссылок
+    // на них принадлежат file-service, и дублировать здесь размер или имя
+    // значило бы завести вторую копию правды (§9.1).
+    if (input.attachmentFileIds !== undefined) {
+      data.attachmentFileIds = input.attachmentFileIds;
+    }
 
     return this.prisma.$transaction(async (tx) => {
       if (input.labelIds) {

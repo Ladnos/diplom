@@ -90,11 +90,17 @@ http {
 
         # ── Полупубличные файлы: подписанная ссылка ──────────────────────
         # Аватары и превью: подпись проверяет сам nginx, приложение не
-        # вызывается вообще (§9.4). Секрет обязан совпадать с
-        # FILE_SIGNED_LINK_SECRET у file-service.
+        # вызывается вообще (§9.4).
+        #
+        # ${FILE_SIGNED_LINK_SECRET} подставляется при старте контейнера из
+        # переменной окружения — той же самой, по которой file-service
+        # подписывает ссылки. Держать здесь литерал значило бы либо хранить
+        # секрет в репозитории, либо однажды разойтись с сервисом, и тогда
+        # все ссылки разом начали бы отдавать 403 без единой ошибки в логах
+        # приложения.
         location /files/ {
             secure_link $arg_sig,$arg_expires;
-            secure_link_md5 "$secure_link_expires$uri$remote_addr CHANGE_ME_LINK_SECRET";
+            secure_link_md5 "$secure_link_expires$uri$remote_addr ${FILE_SIGNED_LINK_SECRET}";
 
             if ($secure_link = "")  { return 403; }   # подпись неверна
             if ($secure_link = "0") { return 410; }   # срок истёк

@@ -12,6 +12,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ChatClient, type ChannelDto, type MessageDto } from '../clients/chat.client';
+import { FileClient, toPublicAttachment, type FileMetaDto } from '../clients/file.client';
 import { HrClient } from '../clients/hr.client';
 import type { AuthenticatedUser } from '../auth/auth.guard';
 import { CurrentUser, RequirePermission } from '../auth/permission.guard';
@@ -44,6 +45,7 @@ export class ChannelsController {
   constructor(
     private readonly chat: ChatClient,
     private readonly hr: HrClient,
+    private readonly files: FileClient,
   ) {}
 
   @Get()
@@ -138,11 +140,17 @@ export class ChannelsController {
       threadRootId: query.threadRootId,
     });
 
-    const names = await this.resolveNames(
-      result.messages.map((message) => message.author_employee_id),
-    );
+    // Имена авторов и метаданные вложений добираются двумя пакетными
+    // вызовами на всю страницу, а не по вызову на сообщение: страница
+    // истории — это полсотни записей, и поштучные запросы превратили бы
+    // одну прокрутку в сотню round-trip'ов.
+    const [names, attachments] = await Promise.all([
+      this.resolveNames(result.messages.map((message) => message.author_employee_id)),
+      this.files.metaByIds(result.messages.flatMap((message) => message.attachment_file_ids ?? [])),
+    ]);
+
     return {
-      messages: result.messages.map((message) => toPublicMessage(message, names)),
+      messages: result.messages.map((message) => toPublicMessage(message, names, attachments)),
       nextCursor: result.page.next_cursor || null,
       hasMore: result.page.has_more,
     };
@@ -165,7 +173,20 @@ export class ChannelsController {
       attachmentFileIds: dto.attachmentFileIds,
       clientMessageId: dto.clientMessageId,
     });
-    return toPublicMessage(message, await this.resolveNames([message.author_employee_id]));
+
+    // Привязка вложений — ПОСЛЕ создания сообщения и здесь, а не в
+    // chat-service. Идентификатор сообщения появляется только сейчас, а
+    // возлагать вызов на чат значило бы завести обратную зависимость:
+    // file-service уже спрашивает у чата, кому отдавать вложение (§9.3),
+    // и встречный вызов замкнул бы пару сервисов друг на друга.
+    const [names, attachments] = await Promise.all([
+      this.resolveNames([message.author_employee_id]),
+      this.files
+        .attachAll(message.attachment_file_ids ?? [], 'CHAT_MESSAGE', message.message_id)
+        .then(() => this.files.metaByIds(message.attachment_file_ids ?? [])),
+    ]);
+
+    return toPublicMessage(message, names, attachments);
   }
 
   @Post(':id/read')
@@ -229,6 +250,7 @@ export class MessagesController {
   constructor(
     private readonly chat: ChatClient,
     private readonly hr: HrClient,
+    private readonly files: FileClient,
   ) {}
 
   @Get('search')
@@ -243,11 +265,13 @@ export class MessagesController {
       cursor: query.cursor,
     });
 
-    const names = await this.resolveNames(
-      result.messages.map((message) => message.author_employee_id),
-    );
+    const [names, attachments] = await Promise.all([
+      this.resolveNames(result.messages.map((message) => message.author_employee_id)),
+      this.files.metaByIds(result.messages.flatMap((message) => message.attachment_file_ids ?? [])),
+    ]);
+
     return {
-      messages: result.messages.map((message) => toPublicMessage(message, names)),
+      messages: result.messages.map((message) => toPublicMessage(message, names, attachments)),
       nextCursor: result.page.next_cursor || null,
       hasMore: result.page.has_more,
     };
@@ -261,7 +285,11 @@ export class MessagesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const message = await this.chat.editMessage(id, requireEmployee(user), dto.body);
-    return toPublicMessage(message, await this.resolveNames([message.author_employee_id]));
+    return toPublicMessage(
+      message,
+      await this.resolveNames([message.author_employee_id]),
+      await this.files.metaByIds(message.attachment_file_ids ?? []),
+    );
   }
 
   @Delete(':id')
@@ -282,7 +310,11 @@ export class MessagesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const message = await this.chat.toggleReaction(id, requireEmployee(user), dto.emoji);
-    return toPublicMessage(message, await this.resolveNames([message.author_employee_id]));
+    return toPublicMessage(
+      message,
+      await this.resolveNames([message.author_employee_id]),
+      await this.files.metaByIds(message.attachment_file_ids ?? []),
+    );
   }
 
   private async resolveNames(ids: string[]): Promise<Map<string, string>> {
@@ -335,7 +367,11 @@ function toPublicChannel(
   };
 }
 
-function toPublicMessage(message: MessageDto, names: Map<string, string>) {
+function toPublicMessage(
+  message: MessageDto,
+  names: Map<string, string>,
+  attachments: Map<string, FileMetaDto> = new Map(),
+) {
   return {
     messageId: message.message_id,
     channelId: message.channel_id,
@@ -349,7 +385,9 @@ function toPublicMessage(message: MessageDto, names: Map<string, string>) {
     body: message.body,
     threadRootId: message.thread_root_id || null,
     mentions: message.mentions,
-    attachmentFileIds: message.attachment_file_ids,
+    attachments: (message.attachment_file_ids ?? []).map((fileId) =>
+      toPublicAttachment(fileId, attachments.get(fileId)),
+    ),
     reactions: message.reactions.map((reaction) => ({
       emoji: reaction.emoji,
       employeeIds: reaction.employee_ids,

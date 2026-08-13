@@ -530,6 +530,17 @@ export class UpdateCardDto {
   @IsArray()
   @IsUUID('4', { each: true })
   labelIds?: string[];
+
+  /**
+   * Полный список вложений после правки, а не добавляемые. Клиент
+   * редактирует набор целиком; «добавить» отдельным полем потребовало бы
+   * ещё и «удалить», а с ними — правил разрешения конфликтов.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsUUID('4', { each: true })
+  attachmentFileIds?: string[];
 }
 
 export class MoveCardDto {

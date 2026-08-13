@@ -73,10 +73,24 @@ services:
     ports:
       - "${PUBLIC_HTTP_PORT:-8080}:80"
     volumes:
-      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Шаблон, а не готовый конфиг: секрет подписи ссылок обязан
+      # совпадать с тем, которым их выдаёт file-service, а хранить его в
+      # репозитории нельзя. Официальный образ подставляет переменные из
+      # /etc/nginx/templates/*.template при старте.
+      - ./docker/nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
       # Только чтение: писать в хранилище имеет право лишь file-service.
       # Nginx нужен доступ к тому для X-Accel-Redirect и secure_link (§9.3).
       - files:/data/files:ro
+    environment:
+      # Итог кладём в /etc/nginx, а не в conf.d по умолчанию: подставляется
+      # главный конфиг целиком.
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
+      # Список подставляемых переменных задан явно. Без него envsubst
+      # заменил бы КАЖДУЮ переменную окружения, а в конфиге nginx полно
+      # собственных ($uri, $remote_addr, $secure_link_expires), и
+      # случайное совпадение имени превратило бы конфиг в мусор.
+      NGINX_ENVSUBST_FILTER: FILE_SIGNED_LINK_SECRET
+      FILE_SIGNED_LINK_SECRET: ${FILE_SIGNED_LINK_SECRET:?переменная FILE_SIGNED_LINK_SECRET обязательна}
     networks: [crm-public, crm-internal]
     depends_on:
       - api-gateway
@@ -207,6 +221,7 @@ services:
       FILE_SIGNED_LINK_TTL: ${FILE_SIGNED_LINK_TTL:-86400}
       FILE_QUOTA_PER_USER_BYTES: ${FILE_QUOTA_PER_USER_BYTES:-5368709120}
       FILE_DISK_ALERT_THRESHOLD: ${FILE_DISK_ALERT_THRESHOLD:-0.85}
+      FILE_GC_GRACE_DAYS: ${FILE_GC_GRACE_DAYS:-7}
 
   notification-service:
     <<: [*service-base, *logging]

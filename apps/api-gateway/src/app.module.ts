@@ -12,6 +12,7 @@ import { ApprovalClient } from './clients/approval.client';
 import { TaskClient } from './clients/task.client';
 import { NotificationClient } from './clients/notification.client';
 import { ChatClient } from './clients/chat.client';
+import { FileClient } from './clients/file.client';
 import { RedisService } from './cache/redis.service';
 import { JwtAuthGuard } from './auth/auth.guard';
 import { PermissionGuard } from './auth/permission.guard';
@@ -91,6 +92,7 @@ import { ChannelsController, MessagesController } from './http/chat.controller';
     TaskClient,
     NotificationClient,
     ChatClient,
+    FileClient,
     RedisService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionGuard },

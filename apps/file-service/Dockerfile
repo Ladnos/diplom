@@ -63,6 +63,15 @@ RUN apk add --no-cache openssl tini \
  && addgroup -S crm \
  && adduser -S -G crm -h /app crm
 
+# Каталог хранилища создаётся В ОБРАЗЕ и отдаётся непривилегированному
+# пользователю. Docker переносит владельца каталога из образа в НОВЫЙ
+# пустой том при первом монтировании; без этой строки том создаётся
+# принадлежащим root, и сервис под пользователем crm падает на mkdir.
+# Уже существующий том прав не меняет — его владельца правят один раз
+# вручную (см. README, раздел про файлы).
+RUN mkdir -p /data/files/objects /data/files/thumbs /data/files/tmp \
+ && chown -R crm:crm /data/files
+
 ENV NODE_ENV=production \
     SERVICE_NAME=file-service
 

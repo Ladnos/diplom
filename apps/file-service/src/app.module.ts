@@ -1,23 +1,30 @@
 import { Module } from '@nestjs/common';
 import { HealthModule } from '@crm/common';
 import { MessagingModule } from '@crm/messaging';
-import { GrpcClientsModule } from '@crm/grpc-clients';
-import { SERVICES } from '@crm/contracts';
 import { PrismaModule } from './prisma/prisma.module';
+import { FileConfigModule } from './config';
+import { FilesModule } from './files/files.module';
 
 /**
  * Корневой модуль file-service.
  *
- * Пока подключена только инфраструктура: health, обмен сообщениями,
- * доступ к БД и gRPC-клиенты к сервисам, которые нужны по §6.3.
- * Доменные модули добавляются сюда по мере реализации.
+ * Единственный сервис, привязанный к конкретному узлу: он владеет
+ * каталогом на диске, и запустить его в нескольких экземплярах без
+ * общего хранилища нельзя. Ограничение принято сознательно и вытекает из
+ * требования «self-hosted», а не из недосмотра — §9.6 перечисляет
+ * выходы, если система вырастет за пределы одного сервера.
+ *
+ * Байты через этот модуль не проходят. Приём идёт потоком на диск,
+ * отдача — силами nginx через X-Accel-Redirect, а Node в обоих случаях
+ * занимается только правами и метаданными.
  */
 @Module({
   imports: [
     HealthModule,
+    FileConfigModule,
     MessagingModule.forRoot({ outbox: true }),
     PrismaModule,
-    GrpcClientsModule.register([SERVICES.AUTH]),
+    FilesModule,
   ],
 })
 export class AppModule {}

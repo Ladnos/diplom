@@ -246,6 +246,10 @@ message UpdateCardCmd {
   int32 estimate_minutes = 5;
   repeated string label_ids = 6;
   repeated string update_mask = 7;
+  // Полный список вложений после правки, а не добавляемые: клиент
+  // редактирует набор целиком, и «добавить» отдельным полем потребовало
+  // бы ещё и «удалить», а вместе с ними — разбора порядка применения.
+  repeated string attachment_file_ids = 8;
 }
 
 message MoveCardCmd {

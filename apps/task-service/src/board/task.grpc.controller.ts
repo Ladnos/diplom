@@ -300,6 +300,7 @@ export class TaskGrpcController {
     due_date?: string;
     estimate_minutes?: number;
     label_ids?: string[];
+    attachment_file_ids?: string[];
     update_mask?: string[];
   }) {
     const card = await this.cards.updateCard({
@@ -311,6 +312,9 @@ export class TaskGrpcController {
         ? data.estimate_minutes
         : undefined,
       labelIds: inMask(data.update_mask, 'label_ids') ? (data.label_ids ?? []) : undefined,
+      attachmentFileIds: inMask(data.update_mask, 'attachment_file_ids')
+        ? (data.attachment_file_ids ?? [])
+        : undefined,
     });
     return mapCard(card);
   }

@@ -16,6 +16,102 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Физический объект на диске. docs/architecture.md §9.1
+///
+/// Ключ — sha256 содержимого, а не идентификатор записи: путь на диске
+/// выводится из хэша, и один и тот же PDF, разосланный десяти
+/// сотрудникам, лежит на диске один раз. Дедупликация получается из
+/// схемы, а не из отдельного механизма сверки.
+model FileObject {
+  sha256    String     @id
+  /// Int, а не BigInt: потолок в 2 ГБ на объект здесь не ограничение, а
+  /// решение. Предел загрузки задан переменной FILE_MAX_UPLOAD_BYTES и по
+  /// умолчанию в сорок раз меньше; BigInt же протёк бы в JSON-выдачу
+  /// значением, которое JSON.stringify сериализовать не умеет.
+  sizeBytes Int        @map("size_bytes")
+  mimeType  String     @map("mime_type")
+  /// Относительный путь превью. Пусто, пока превью не построено:
+  /// генерация идёт отдельной командой media.process.
+  thumbPath String?    @map("thumb_path")
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  metas     FileMeta[]
+
+  @@map("file_objects")
+}
+
+/// Метаданные загрузки.
+///
+/// Записей столько, сколько раз файл загружали: у каждой свои имя,
+/// владелец и счётчик ссылок, а содержимое общее. Отсюда и разделение с
+/// FileObject — удаление одной загрузки не должно стирать байты, на
+/// которые ссылается чужая.
+model FileMeta {
+  id              String     @id @default(uuid()) @db.Uuid
+  sha256          String
+  filename        String
+  mimeType        String     @map("mime_type")
+  sizeBytes       Int        @map("size_bytes")
+  ownerEmployeeId String     @map("owner_employee_id") @db.Uuid
+  visibility      Visibility @default(PRIVATE)
+
+  /// Сколько сущностей ссылается на файл. Ноль означает «загружен, но
+  /// никуда не прикреплён» — такие удаляет сборщик мусора, но не сразу:
+  /// между загрузкой и привязкой проходит время, и немедленная уборка
+  /// стирала бы файл у пользователя между двумя его запросами (§9.5).
+  refcount        Int        @default(0)
+  createdAt       DateTime   @default(now()) @map("created_at")
+
+  object          FileObject   @relation(fields: [sha256], references: [sha256], onDelete: Restrict)
+  attachments     Attachment[]
+
+  @@index([ownerEmployeeId])
+  /// Выборка сборщика мусора: нулевой счётчик и возраст.
+  @@index([refcount, createdAt])
+  @@index([sha256])
+  @@map("file_metas")
+}
+
+enum Visibility {
+  /// Проверка прав на каждое обращение, отдача через X-Accel-Redirect.
+  PRIVATE
+  /// Аватары и превью: HMAC-ссылка с TTL, которую проверяет сам nginx.
+  SEMI_PUBLIC
+
+  @@map("visibility")
+}
+
+/// Привязка файла к сущности другого сервиса.
+///
+/// Хранится здесь, а не у владельца сущности, по одной причине: счётчик
+/// ссылок обязан быть согласован с тем, что его меняет. Если бы список
+/// вложений вёл chat-service, а refcount — file-service, расхождение
+/// двух хранилищ означало бы либо удалённый файл у живого сообщения,
+/// либо вечный мусор на диске.
+model Attachment {
+  fileId     String     @map("file_id") @db.Uuid
+  entityType EntityType @map("entity_type")
+  entityId   String     @map("entity_id")
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  file       FileMeta   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@id([fileId, entityType, entityId])
+  /// Отвязка по сущности: «удалено сообщение — отпустить его вложения».
+  @@index([entityType, entityId])
+  @@map("attachments")
+}
+
+enum EntityType {
+  CHAT_MESSAGE
+  TASK_CARD
+  CALL_RECORDING
+  EMPLOYEE_AVATAR
+  TIMESHEET_EXPORT
+
+  @@map("entity_type")
+}
+
 /// Транзакционный outbox (§7.7).
 /// Событие пишется сюда в ОДНОЙ транзакции с изменением доменных данных,
 /// а публикует его отдельный воркер. Без этого падение процесса между

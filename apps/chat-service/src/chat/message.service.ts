@@ -534,6 +534,14 @@ export class MessageService {
     };
   }
 
+  /** Канал сообщения — для проверки доступа снаружи. null, если сообщения нет. */
+  async findForAccess(messageId: string): Promise<{ channelId: string } | null> {
+    return this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { channelId: true },
+    });
+  }
+
   private async getMessage(messageId: string): Promise<MessageWithReactions> {
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },

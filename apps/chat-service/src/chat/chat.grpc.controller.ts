@@ -171,6 +171,26 @@ export class ChatGrpcController {
     };
   }
 
+  /**
+   * Может ли сотрудник видеть сообщение.
+   *
+   * Спрашивает file-service, решая, отдавать ли вложение. Отвечаем
+   * булевым значением, а не ошибкой: для спрашивающего «нет доступа» —
+   * это штатный вариант ответа, по которому он проверит следующую
+   * привязку того же файла, а не повод прерывать обработку.
+   */
+  @GrpcMethod('ChatService', 'CanAccessMessage')
+  async canAccessMessage(data: { message_id: string; employee_id: string }) {
+    const message = await this.messages.findForAccess(data.message_id);
+    if (!message) return { value: false, reason: 'сообщение не найдено' };
+
+    const member = await this.channels.isMember(message.channelId, data.employee_id);
+    return {
+      value: member,
+      reason: member ? '' : 'вы не участник канала',
+    };
+  }
+
   // ── Прочтение ─────────────────────────────────────────────────────────
 
   @GrpcMethod('ChatService', 'MarkRead')

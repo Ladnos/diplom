@@ -19,6 +19,7 @@ import {
   type ColumnDto,
 } from '../clients/task.client';
 import { HrClient } from '../clients/hr.client';
+import { FileClient, toPublicAttachment, type FileMetaDto } from '../clients/file.client';
 import type { AuthenticatedUser } from '../auth/auth.guard';
 import { CurrentUser, RequirePermission } from '../auth/permission.guard';
 import {
@@ -49,6 +50,7 @@ export class BoardsController {
   constructor(
     private readonly tasks: TaskClient,
     private readonly hr: HrClient,
+    private readonly files: FileClient,
   ) {}
 
   @Get()
@@ -87,16 +89,22 @@ export class BoardsController {
     const employeeId = requireEmployee(user);
     const view = await this.tasks.getBoard(id, employeeId);
 
-    const names = await this.resolveNames([
-      ...view.board.members.map((member) => member.employee_id),
-      ...view.cards.map((card) => card.assignee_employee_id).filter(Boolean),
+    // Имена и метаданные вложений — по одному пакетному вызову на всю
+    // доску: она отрисовывается целиком, и вызов на карточку превратил бы
+    // открытие доски в десятки round-trip'ов.
+    const [names, attachments] = await Promise.all([
+      this.resolveNames([
+        ...view.board.members.map((member) => member.employee_id),
+        ...view.cards.map((card) => card.assignee_employee_id).filter(Boolean),
+      ]),
+      this.files.metaByIds(view.cards.flatMap((card) => card.attachment_file_ids ?? [])),
     ]);
 
     const availability = new Map(view.availability.map((item) => [item.employee_id, item]));
 
     return {
       ...toPublicBoard(view.board, names),
-      cards: view.cards.map((card) => toPublicCard(card, names, availability)),
+      cards: view.cards.map((card) => toPublicCard(card, names, availability, attachments)),
     };
   }
 
@@ -235,6 +243,7 @@ export class CardsController {
   constructor(
     private readonly tasks: TaskClient,
     private readonly hr: HrClient,
+    private readonly files: FileClient,
   ) {}
 
   /** Мои задачи или задачи подчинённого. */
@@ -258,14 +267,36 @@ export class CardsController {
   async getOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
     const employeeId = requireEmployee(user);
     const card = await this.tasks.getCard(id, employeeId);
-    const names = await this.resolveNames([card.assignee_employee_id, card.author_employee_id]);
-    return toPublicCard(card, names, new Map());
+    const [names, attachments] = await Promise.all([
+      this.resolveNames([card.assignee_employee_id, card.author_employee_id]),
+      this.files.metaByIds(card.attachment_file_ids ?? []),
+    ]);
+    return toPublicCard(card, names, new Map(), attachments);
   }
 
   @Patch(':id')
   @RequirePermission({ resource: 'card', action: 'write' })
   async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCardDto) {
+    const before = dto.attachmentFileIds !== undefined ? await this.tasks.getCard(id, '') : null;
     const card = await this.tasks.updateCard({ cardId: id, ...dto });
+
+    // Счётчик ссылок правится по РАЗНИЦЕ наборов: клиент присылает
+    // список целиком, и слепая привязка всего перечисленного завысила бы
+    // счётчик у файлов, которые и так были в карточке, а убранные
+    // остались бы удерживать её вечно.
+    if (before && dto.attachmentFileIds) {
+      const was = new Set(before.attachment_file_ids ?? []);
+      const now = new Set(dto.attachmentFileIds);
+      await this.files.attachAll(
+        [...now].filter((fileId) => !was.has(fileId)),
+        'TASK_CARD',
+        id,
+      );
+      for (const fileId of [...was].filter((item) => !now.has(item))) {
+        await this.files.detach(fileId, 'TASK_CARD', id).catch(() => undefined);
+      }
+    }
+
     return toPublicCard(card, new Map(), new Map());
   }
 
@@ -416,6 +447,7 @@ function toPublicCard(
   card: CardDto,
   names: Map<string, string>,
   availability: Map<string, AvailabilityDto>,
+  attachments: Map<string, FileMetaDto> = new Map(),
 ) {
   const assigneeId = card.assignee_employee_id || null;
   const absence = assigneeId ? availability.get(assigneeId) : undefined;
@@ -442,6 +474,9 @@ function toPublicCard(
       name: label.name,
       color: label.color,
     })),
+    attachments: (card.attachment_file_ids ?? []).map((fileId) =>
+      toPublicAttachment(fileId, attachments.get(fileId)),
+    ),
     dueDate: card.due_date || null,
     estimateMinutes: card.estimate_minutes || 0,
     // Версию клиент обязан вернуть при перетаскивании — см. MoveCardDto

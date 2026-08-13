@@ -193,6 +193,15 @@ export class ChannelService {
     return channel;
   }
 
+  /** Участвует ли сотрудник в канале. Без исключения — для тех, кому нужен ответ. */
+  async isMember(channelId: string, employeeId: string): Promise<boolean> {
+    const member = await this.prisma.channelMember.findUnique({
+      where: { channelId_employeeId: { channelId, employeeId } },
+      select: { role: true },
+    });
+    return member !== null;
+  }
+
   /**
    * Проверка участия без выдачи содержимого.
    *
@@ -201,11 +210,7 @@ export class ChannelService {
    * участников.
    */
   async assertMember(channelId: string, employeeId: string): Promise<void> {
-    const member = await this.prisma.channelMember.findUnique({
-      where: { channelId_employeeId: { channelId, employeeId } },
-      select: { role: true },
-    });
-    if (member) return;
+    if (await this.isMember(channelId, employeeId)) return;
 
     // Не разделяем «канала нет» и «вы не участник»: иначе по коду ответа
     // можно было бы перебором выяснить, какие каналы существуют.

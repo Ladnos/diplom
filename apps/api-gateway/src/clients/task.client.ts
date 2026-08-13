@@ -275,6 +275,7 @@ export class TaskClient implements OnModuleInit {
     dueDate?: string | null;
     estimateMinutes?: number;
     labelIds?: string[];
+    attachmentFileIds?: string[];
   }) {
     const mask: string[] = [];
     if (input.title !== undefined) mask.push('title');
@@ -282,6 +283,7 @@ export class TaskClient implements OnModuleInit {
     if (input.dueDate !== undefined) mask.push('due_date');
     if (input.estimateMinutes !== undefined) mask.push('estimate_minutes');
     if (input.labelIds !== undefined) mask.push('label_ids');
+    if (input.attachmentFileIds !== undefined) mask.push('attachment_file_ids');
 
     return this.call(
       this.service.UpdateCard({
@@ -291,6 +293,7 @@ export class TaskClient implements OnModuleInit {
         due_date: input.dueDate ?? '',
         estimate_minutes: input.estimateMinutes ?? 0,
         label_ids: input.labelIds ?? [],
+        attachment_file_ids: input.attachmentFileIds ?? [],
         update_mask: mask,
       }),
     );

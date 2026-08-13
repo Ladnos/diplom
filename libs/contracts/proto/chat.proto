@@ -25,6 +25,16 @@ service ChatService {
   rpc MarkRead(MarkReadRequest) returns (UnreadCounters);
   rpc GetUnreadCounters(UserRequest) returns (UnreadCounters);
   rpc SearchMessages(SearchRequest) returns (MessageList);
+  // Может ли сотрудник видеть сообщение. Нужен file-service, чтобы
+  // решить, отдавать ли вложение: доступ к файлу следует за доступом к
+  // сущности, в которой он висит (§9.3). Отдельный метод, а не
+  // GetHistory: спрашивающему нужен ответ «да или нет», а не переписка.
+  rpc CanAccessMessage(MessageAccessRequest) returns (common.BoolResult);
+}
+
+message MessageAccessRequest {
+  string message_id = 1;
+  string employee_id = 2;
 }
 
 message Channel {
