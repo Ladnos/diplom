@@ -9,7 +9,7 @@ import {
 } from '@crm/contracts';
 import { getRequestContext } from '@crm/common';
 import { EventPublisher } from '@crm/messaging';
-import type { Prisma, UserStatus } from '../../generated/prisma';
+import { Prisma, type UserStatus } from '../../generated/prisma';
 import { PrismaService } from '../prisma/prisma.service';
 import { outboxRow } from '../prisma/outbox.store';
 
@@ -462,22 +462,39 @@ export class AdminService {
       });
       if (existing) continue;
 
-      await this.prisma.$transaction(async (tx) => {
-        await tx.userRole.create({
-          data: { userId: user.id, roleCode: MANAGER_ROLE, auto: true },
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.userRole.create({
+            data: { userId: user.id, roleCode: MANAGER_ROLE, auto: true },
+          });
+          const envelope = this.publisher.wrap<RoleChanged>(
+            AuthEvents.ROLE_GRANTED,
+            {
+              userId: user.id,
+              employeeId: user.employeeId ?? undefined,
+              roleCode: MANAGER_ROLE,
+              auto: true,
+            },
+            getRequestContext(),
+          );
+          await tx.outbox.create({ data: outboxRow(envelope) });
         });
-        const envelope = this.publisher.wrap<RoleChanged>(
-          AuthEvents.ROLE_GRANTED,
-          {
-            userId: user.id,
-            employeeId: user.employeeId ?? undefined,
-            roleCode: MANAGER_ROLE,
-            auto: true,
-          },
-          getRequestContext(),
-        );
-        await tx.outbox.create({ data: outboxRow(envelope) });
-      });
+      } catch (error) {
+        // Проверка выше и вставка здесь не атомарны, а очередь читается с
+        // prefetch 10: два кадровых события подряд синхронизируют роли
+        // параллельно, оба видят «роли нет» и оба её создают. Проигравший
+        // упирается в уникальный ключ.
+        //
+        // Это штатный исход гонки, а не сбой обработки: роль выдана, и
+        // событие о выдаче опубликовал победитель. Без этой ветки
+        // hr.employee.updated уходил в DLQ, а вместе с ним терялось и
+        // обновление проекции отдела.
+        if (!isUniqueViolation(error)) throw error;
+        this.logger.debug({
+          message: 'роль руководителя уже выдана параллельно',
+          userId: user.id,
+        });
+      }
     }
 
     for (const userId of toRevoke) {
@@ -503,4 +520,9 @@ export class AdminService {
     }
     return { granted: toGrant.length, revoked: toRevoke.length };
   }
+}
+
+/** P2002 — нарушение уникального ключа. */
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }

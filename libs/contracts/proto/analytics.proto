@@ -92,8 +92,18 @@ message ExportRequest {
 message ExportTicket {
   string ticket_id = 1;
   Status status = 2;
-  string file_id = 3;  // заполняется по готовности
+  // Остаётся пустым: содержимое отчёта хранится в самом билете, а не в
+  // file-service. Приём файлов рассчитан на загрузку человеком с его
+  // токеном, а выгрузку формирует сервис по команде из очереди — ему
+  // предъявлять нечего, и служебный путь загрузки в обход проверок
+  // заводить ради этого не стали. Поле сохранено для установок, где
+  // отчёты кладутся в хранилище.
+  string file_id = 3;
   string error = 4;
+  // Готовый отчёт. Возвращается только по GetExportStatus и только когда
+  // status = READY.
+  string content = 5;
+  string filename = 6;
 
   enum Status {
     STATUS_UNSPECIFIED = 0;

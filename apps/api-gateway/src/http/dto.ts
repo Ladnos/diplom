@@ -836,6 +836,74 @@ export class HistoryQuery {
   threadRootId?: string;
 }
 
+// ── Отчёты ──────────────────────────────────────────────────────────────
+
+export class ReportPeriodQuery {
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from: дата YYYY-MM-DD' })
+  from?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to: дата YYYY-MM-DD' })
+  to?: string;
+
+  /** Отдел вместо своей команды. Право на чужой отдел решает auth-service. */
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
+
+  /** Только для отчёта по потоку задач. */
+  @IsOptional()
+  @IsUUID()
+  boardId?: string;
+}
+
+export class RequestExportDto {
+  @IsIn(['TIME_UTILIZATION', 'TASK_FLOW', 'APPROVALS', 'MEETINGS'])
+  reportType!: string;
+
+  /**
+   * XLSX и PDF потребовали бы библиотек вёрстки; CSV не требует ничего.
+   * Сервис отвечает на них UNIMPLEMENTED, поэтому и в списке их нет —
+   * принять значение, чтобы тут же отказать, значит обещать лишнее.
+   */
+  @IsOptional()
+  @IsIn(['CSV'])
+  format?: string;
+}
+
+export class AuditLogQuery {
+  @IsOptional()
+  @IsUUID()
+  actorEmployeeId?: string;
+
+  /** Префикс: `approval` покроет все события согласований. */
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  eventType?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  from?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  to?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 32)
+  cursor?: string;
+}
+
 // ── Звонки ──────────────────────────────────────────────────────────────
 
 export class CreateCallDto {

@@ -16,6 +16,183 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Журнал аудита: полный поток событий системы.
+///
+/// Очередь сервиса привязана к `#`, то есть сюда приходит ВСЁ, что
+/// публикуется в шину. Это и есть журнал: не отдельный механизм записи
+/// действий, а побочный продукт событийной архитектуры. Никакой сервис не
+/// обязан «не забыть записать в аудит» — если действие породило событие,
+/// оно уже здесь.
+///
+/// Payload хранится целиком в Json: разбирать его на колонки означало бы
+/// заводить схему под каждый из полусотни типов событий и менять её при
+/// каждом изменении любого из них.
+model AuditLog {
+  eventId         String   @id @map("event_id") @db.Uuid
+  eventType       String   @map("event_type")
+  producer        String
+  actorUserId     String?  @map("actor_user_id") @db.Uuid
+  actorEmployeeId String?  @map("actor_employee_id") @db.Uuid
+  correlationId   String   @map("correlation_id")
+  causationId     String?  @map("causation_id")
+  payload         Json
+  occurredAt      DateTime @map("occurred_at")
+
+  /// Разбор инцидента идёт от времени и от типа; поиск «что делал этот
+  /// человек» — третий по частоте.
+  @@index([occurredAt])
+  @@index([eventType, occurredAt])
+  @@index([actorEmployeeId, occurredAt])
+  @@map("audit_log")
+}
+
+/// Проекция сотрудников — измерение для всех витрин.
+///
+/// Отчёты строятся «по команде» и «по отделу», а события несут только
+/// employeeId. Без этой таблицы каждый отчёт превращался бы в обращение к
+/// hr-service за оргструктурой, то есть тяжёлый агрегирующий запрос
+/// становился бы ещё и синхронно зависимым.
+model EmployeeRef {
+  employeeId        String   @id @map("employee_id") @db.Uuid
+  fullName          String   @map("full_name")
+  departmentId      String?  @map("department_id") @db.Uuid
+  managerEmployeeId String?  @map("manager_employee_id") @db.Uuid
+  employmentType    String?  @map("employment_type")
+  /// Политика учёта времени: от неё зависит, что вообще осмысленно
+  /// считать. У DELIVERABLE_BASED нормы часов нет (§3.2).
+  timePolicy        String?  @map("time_policy")
+  active            Boolean  @default(true)
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([departmentId])
+  @@index([managerEmployeeId])
+  @@map("employee_refs")
+}
+
+/// Факт рабочего времени за день.
+///
+/// Складывается из разных событий: норма — из назначенных смен,
+/// отсутствия — из зарегистрированных отпусков, переработки — из
+/// утверждённых заявок. Витрина, а не источник истины: табель считает
+/// hr-service, здесь лежит агрегат для отчётов.
+model TimeFact {
+  employeeId      String   @map("employee_id") @db.Uuid
+  date            DateTime @db.Date
+  normMinutes     Int      @default(0) @map("norm_minutes")
+  absenceMinutes  Int      @default(0) @map("absence_minutes")
+  overtimeMinutes Int      @default(0) @map("overtime_minutes")
+  absenceType     String?  @map("absence_type")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@id([employeeId, date])
+  @@index([date])
+  @@map("time_facts")
+}
+
+/// Жизненный путь карточки — основа lead time и cycle time.
+///
+/// lead time — от создания до закрытия: сколько задача прожила от
+/// постановки. cycle time — от начала работы до закрытия: сколько её
+/// делали. Разница между ними и есть время ожидания в очереди, а это
+/// главный показатель, ради которого Kanban вообще смотрят.
+model CardFlow {
+  cardId       String    @id @map("card_id") @db.Uuid
+  boardId      String    @map("board_id") @db.Uuid
+  createdAt    DateTime  @map("created_at")
+  /// Момент первого перемещения — принято за начало работы.
+  startedAt    DateTime? @map("started_at")
+  closedAt     DateTime? @map("closed_at")
+  leadHours    Float?    @map("lead_hours")
+  cycleHours   Float?    @map("cycle_hours")
+
+  visits       CardColumnVisit[]
+
+  @@index([boardId, closedAt])
+  @@map("card_flows")
+}
+
+/// Пребывание карточки в колонке. Из него считается, где задачи стоят.
+model CardColumnVisit {
+  id         String    @id @default(uuid()) @db.Uuid
+  cardId     String    @map("card_id") @db.Uuid
+  columnId   String    @map("column_id") @db.Uuid
+  enteredAt  DateTime  @map("entered_at")
+  leftAt     DateTime? @map("left_at")
+
+  card       CardFlow  @relation(fields: [cardId], references: [cardId], onDelete: Cascade)
+
+  @@index([cardId, leftAt])
+  @@index([columnId])
+  @@map("card_column_visits")
+}
+
+/// Заявка на согласование: сколько шла и чем кончилась.
+model ApprovalFact {
+  requestId        String    @id @map("request_id") @db.Uuid
+  type             String
+  authorEmployeeId String    @map("author_employee_id") @db.Uuid
+  createdAt        DateTime  @map("created_at")
+  decidedAt        DateTime? @map("decided_at")
+  /// APPROVED, REJECTED или null — решение ещё не принято.
+  outcome          String?
+  escalations      Int       @default(0)
+
+  @@index([createdAt])
+  @@index([authorEmployeeId, createdAt])
+  @@map("approval_facts")
+}
+
+/// Состоявшийся звонок. Длительность и участие — для оценки нагрузки на
+/// календарь, а НЕ для контроля сотрудников (§5, ADR-2).
+model CallFact {
+  roomId       String   @id @map("room_id") @db.Uuid
+  durationSec  Int      @map("duration_sec")
+  participants String[] @default([])
+  channelId    String?  @map("channel_id") @db.Uuid
+  endedAt      DateTime @map("ended_at")
+
+  @@index([endedAt])
+  @@map("call_facts")
+}
+
+/// Билет выгрузки.
+///
+/// Содержимое лежит здесь же, а не в file-service. Причина в границе
+/// доступа: приём файлов рассчитан на загрузку человеком с его токеном,
+/// а выгрузку формирует сервис по команде из очереди, и предъявлять ему
+/// нечего. Заводить ради этого служебный путь загрузки — это отдельный
+/// способ положить файл в хранилище в обход проверок, которые в нём и
+/// есть главное. Отчёты невелики и живут неделю: у билета и содержимого
+/// один срок жизни и одна строка.
+model ExportTicket {
+  id                    String       @id @default(uuid()) @db.Uuid
+  reportType            String       @map("report_type")
+  format                String
+  requestedByEmployeeId String       @map("requested_by_employee_id") @db.Uuid
+  periodFrom            DateTime     @map("period_from") @db.Date
+  periodTo              DateTime     @map("period_to") @db.Date
+  paramsJson            String?      @map("params_json")
+  status                ExportStatus @default(QUEUED)
+  content               String?
+  filename              String?
+  error                 String?
+  createdAt             DateTime     @default(now()) @map("created_at")
+  readyAt               DateTime?    @map("ready_at")
+
+  @@index([requestedByEmployeeId, createdAt])
+  @@index([status, createdAt])
+  @@map("export_tickets")
+}
+
+enum ExportStatus {
+  QUEUED
+  RUNNING
+  READY
+  FAILED
+
+  @@map("export_status")
+}
+
 /// Транзакционный outbox (§7.7).
 /// Событие пишется сюда в ОДНОЙ транзакции с изменением доменных данных,
 /// а публикует его отдельный воркер. Без этого падение процесса между
