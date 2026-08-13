@@ -46,7 +46,9 @@ export class SignedLinkService {
     const ttl = clamp(input.ttlSeconds ?? this.config.signedLinkTtlSeconds);
     const expires = Math.floor(Date.now() / 1000) + ttl;
 
-    const uri = `/files/${input.relativePath}`;
+    // Префикс /media/ занят под подписанные ссылки; /files/ оставлен
+    // приложению как адрес пользовательского раздела.
+    const uri = `/media/${input.relativePath}`;
     const signature = createHash('md5')
       .update(`${expires}${uri}${input.clientIp} ${this.config.signedLinkSecret}`)
       .digest('base64')

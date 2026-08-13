@@ -81,6 +81,8 @@ services:
       # Только чтение: писать в хранилище имеет право лишь file-service.
       # Nginx нужен доступ к тому для X-Accel-Redirect и secure_link (§9.3).
       - files:/data/files:ro
+      # Собранный интерфейс. Тоже только чтение: раскладывает его сборщик.
+      - webdist:/usr/share/nginx/html:ro
     environment:
       # Итог кладём в /etc/nginx, а не в conf.d по умолчанию: подставляется
       # главный конфиг целиком.
@@ -93,12 +95,30 @@ services:
       FILE_SIGNED_LINK_SECRET: ${FILE_SIGNED_LINK_SECRET:?переменная FILE_SIGNED_LINK_SECRET обязательна}
     networks: [crm-public, crm-internal]
     depends_on:
-      - api-gateway
+      api-gateway:
+        condition: service_started
+      # Ждём, пока сборщик разложит статику: nginx, стартовавший раньше,
+      # отдавал бы 404 на корень до первого обновления страницы.
+      web:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/healthz"]
       interval: 15s
       timeout: 5s
       retries: 3
+    <<: *logging
+
+  # Интерфейс. Не сервис, а разовая задача: собирает статику в общий том
+  # и завершается. Отдаёт её nginx — держать ради этого работающий
+  # контейнер с Node незачем, SSR выключен намеренно (см. nuxt.config.ts).
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: crm-web
+    restart: "no"
+    volumes:
+      - webdist:/usr/share/nginx/html
     <<: *logging
 
   api-gateway:
@@ -413,3 +433,7 @@ volumes:
   #   docker run --rm -v crm_files:/data -v $PWD:/backup alpine \
   #     tar czf /backup/files.tar.gz -C /data .
   files:
+  # Собранный интерфейс. Заполняется одноразовым контейнером web при
+  # запуске, раздаётся nginx. Резервировать не нужно — содержимое
+  # целиком выводится из исходников.
+  webdist:
