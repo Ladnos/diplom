@@ -170,7 +170,16 @@ export const QUEUE_DEFINITIONS: QueueDefinition[] = [
     bindings: [
       {
         exchange: Exchanges.EVENTS,
-        patterns: ['hr.employee.#', 'video.call.ended', 'task.card.assigned'],
+        patterns: [
+          'hr.employee.#',
+          // Право писать в канал объявлений принадлежит руководителю
+          // (ADR-3), а руководитель — тот, у кого есть подчинённые.
+          // hr.employee.# приносит начальника только при создании и
+          // правке карточки; перевод под другого руководителя приходит
+          // отдельным событием, без которого проекция отставала бы молча.
+          'hr.hierarchy.changed',
+          'video.call.ended',
+        ],
       },
     ],
   },

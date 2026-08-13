@@ -16,6 +16,173 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Канал переписки.
+///
+/// Тип канала определяет и правила доступа, и способ появления: PUBLIC и
+/// PRIVATE создаются явно, DIRECT — при первом обращении к собеседнику,
+/// ANNOUNCEMENT отличается тем, что писать в него может только
+/// руководитель (ADR-3), а читать — все участники.
+model Channel {
+  id                 String      @id @default(uuid()) @db.Uuid
+  name               String
+  type               ChannelType
+  departmentId       String?     @map("department_id") @db.Uuid
+  creatorEmployeeId  String      @map("creator_employee_id") @db.Uuid
+
+  /// Монотонный номер последнего сообщения в канале (§8.2).
+  ///
+  /// Живёт в строке канала, а не вычисляется как max(seq) по сообщениям:
+  /// присвоение следующего номера должно блокировать одну строку, а не
+  /// сканировать таблицу. Инкремент внутри транзакции отправки
+  /// сериализует одновременных отправителей — при max(seq) двое получили
+  /// бы одинаковый номер.
+  lastMessageSeq     Int         @default(0) @map("last_message_seq")
+
+  /// Ключ пары для личной переписки: два отсортированных employeeId
+  /// через двоеточие. Уникальный индекс превращает гонку двух
+  /// одновременных «написать Ивану» в конфликт вставки вместо двух
+  /// параллельных диалогов, из которых один потом потеряется.
+  /// null у всех каналов, кроме DIRECT.
+  directKey          String?     @unique @map("direct_key")
+
+  archived           Boolean     @default(false)
+  createdAt          DateTime    @default(now()) @map("created_at")
+
+  members            ChannelMember[]
+  messages           Message[]
+  readCursors        ReadCursor[]
+
+  @@index([departmentId])
+  @@map("channels")
+}
+
+enum ChannelType {
+  PUBLIC
+  PRIVATE
+  DIRECT
+  GROUP
+  ANNOUNCEMENT
+
+  @@map("channel_type")
+}
+
+/// Участие в канале. Оно же — единственный источник истины о доступе:
+/// права в auth-service отвечают, может ли человек пользоваться чатом
+/// вообще, а к какому каналу — только эта таблица (§8.1).
+model ChannelMember {
+  channelId  String      @map("channel_id") @db.Uuid
+  employeeId String      @map("employee_id") @db.Uuid
+  role       MemberRole  @default(MEMBER)
+  joinedAt   DateTime    @default(now()) @map("joined_at")
+
+  channel    Channel     @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, employeeId])
+  @@index([employeeId])
+  @@map("channel_members")
+}
+
+enum MemberRole {
+  OWNER
+  MEMBER
+
+  @@map("member_role")
+}
+
+/// Сообщение канала.
+///
+/// Удаление помечает строку, а не убирает её: соседние сообщения ссылаются
+/// на неё как на корень ветки, а нумерация seq обязана оставаться
+/// непрерывной — клиент по разрыву в номерах считает, что потерял пакет,
+/// и запрашивает историю заново (§8.2).
+model Message {
+  id                String    @id @default(uuid()) @db.Uuid
+  channelId         String    @map("channel_id") @db.Uuid
+  authorEmployeeId  String?   @map("author_employee_id") @db.Uuid
+  body              String
+  threadRootId      String?   @map("thread_root_id") @db.Uuid
+  mentions          String[]  @default([])
+  attachmentFileIds String[]  @default([]) @map("attachment_file_ids")
+  seq               Int
+
+  /// Идентификатор, присвоенный клиентом до отправки. Повторная отправка
+  /// после обрыва связи попадает в уникальный ключ и возвращает уже
+  /// сохранённое сообщение вместо второй копии.
+  clientMessageId   String?   @map("client_message_id")
+
+  /// Системное сообщение: «звонок завершён, 42 мин». Автора у него нет,
+  /// поэтому authorEmployeeId допускает null, а флаг позволяет клиенту
+  /// отрисовать его иначе, не разбирая текст.
+  system            Boolean   @default(false)
+
+  createdAt         DateTime  @default(now()) @map("created_at")
+  editedAt          DateTime? @map("edited_at")
+  deleted           Boolean   @default(false)
+
+  channel           Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  reactions         Reaction[]
+
+  /// Основной индекс выборки: история читается курсором по seq вниз.
+  @@unique([channelId, seq])
+  @@unique([channelId, clientMessageId])
+  @@index([channelId, threadRootId, seq])
+  @@map("messages")
+}
+
+/// Реакция на сообщение. Строка на пару «человек + эмодзи»: повторное
+/// нажатие снимает реакцию, а группировка по эмодзи делается на выдаче.
+model Reaction {
+  messageId  String   @map("message_id") @db.Uuid
+  employeeId String   @map("employee_id") @db.Uuid
+  emoji      String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, employeeId, emoji])
+  @@map("reactions")
+}
+
+/// До какого номера сообщений пользователь дочитал канал.
+///
+/// Долговременное хранилище курсора. Оперативное значение живёт в Redis и
+/// выгружается сюда пачкой раз в десять секунд (§8.2): курсор двигается на
+/// каждую прокрутку списка, и запись в БД на каждое движение обошлась бы
+/// дороже, чем стоит сам факт.
+model ReadCursor {
+  channelId   String   @map("channel_id") @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  lastReadSeq Int      @default(0) @map("last_read_seq")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  channel     Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, employeeId])
+  @@index([employeeId])
+  @@map("read_cursors")
+}
+
+/// Проекция кадровых данных (§6.3).
+///
+/// Чату нужны три вещи: имя для системных сообщений, признак увольнения
+/// (чтобы не добавлять уволенного в канал) и руководитель — по нему
+/// определяется право писать в канал объявлений. Ходить за этим в
+/// hr-service на каждое сообщение нельзя: переписка должна работать и
+/// при недоступном кадровом сервисе.
+model EmployeeRef {
+  employeeId        String   @id @map("employee_id") @db.Uuid
+  fullName          String   @map("full_name")
+  departmentId      String?  @map("department_id") @db.Uuid
+  managerEmployeeId String?  @map("manager_employee_id") @db.Uuid
+  active            Boolean  @default(true)
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  /// Индекс по руководителю: «есть ли у этого сотрудника подчинённые»
+  /// — это и есть проверка «руководитель ли он».
+  @@index([managerEmployeeId])
+  @@map("employee_refs")
+}
+
 /// Транзакционный outbox (§7.7).
 /// Событие пишется сюда в ОДНОЙ транзакции с изменением доменных данных,
 /// а публикует его отдельный воркер. Без этого падение процесса между

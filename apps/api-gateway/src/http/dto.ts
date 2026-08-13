@@ -704,3 +704,145 @@ export class RemovePushSubscriptionDto {
   @Length(10, 1024)
   endpoint!: string;
 }
+
+// ── Чат ─────────────────────────────────────────────────────────────────
+
+export class CreateChannelDto {
+  @IsString()
+  @Length(1, 120)
+  name!: string;
+
+  /**
+   * DIRECT в списке нет: личная переписка не создаётся с именем и
+   * составом, она заводится обращением к собеседнику через
+   * POST /api/channels/direct.
+   */
+  @IsIn(['PUBLIC', 'PRIVATE', 'GROUP', 'ANNOUNCEMENT'])
+  type!: string;
+
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsUUID('4', { each: true })
+  memberEmployeeIds?: string[];
+}
+
+export class CreateDirectDto {
+  @IsUUID()
+  employeeId!: string;
+}
+
+export class SendMessageDto {
+  @IsString()
+  @Length(0, 8000)
+  body!: string;
+
+  @IsOptional()
+  @IsUUID()
+  threadRootId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  mentions?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsUUID('4', { each: true })
+  attachmentFileIds?: string[];
+
+  /**
+   * Идентификатор, присвоенный клиентом до отправки. Повторная отправка
+   * после обрыва связи вернёт уже сохранённое сообщение вместо второй
+   * копии — без него пользователь, нажавший «отправить» дважды при
+   * зависшей сети, получает дубль.
+   */
+  @IsOptional()
+  @IsUUID()
+  clientMessageId?: string;
+}
+
+export class EditMessageDto {
+  @IsString()
+  @Length(1, 8000)
+  body!: string;
+}
+
+export class ReactionDto {
+  @IsString()
+  @Length(1, 16)
+  emoji!: string;
+}
+
+/**
+ * Отметка о прочтении канала.
+ *
+ * Отдельно от MarkReadDto уведомлений: там отмечаются конкретные записи
+ * или все сразу, здесь — позиция в ленте. Общее имя скрыло бы, что это
+ * две разные операции над разными сущностями.
+ */
+export class MarkChannelReadDto {
+  @IsInt()
+  @Min(1)
+  upToSeq!: number;
+}
+
+/**
+ * Состав канала. Без поля role, в отличие от досок: роль в канале
+ * назначается только созданием, а принимать её здесь и молча
+ * игнорировать — значит обещать клиенту то, чего не происходит.
+ */
+export class AddChannelMembersDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsUUID('4', { each: true })
+  employeeIds!: string[];
+}
+
+export class HistoryQuery {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  beforeSeq?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
+  @IsUUID()
+  threadRootId?: string;
+}
+
+export class MessageSearchQuery {
+  @IsString()
+  @Length(2, 200)
+  q!: string;
+
+  @IsOptional()
+  @IsUUID()
+  channelId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 32)
+  cursor?: string;
+}

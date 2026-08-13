@@ -89,6 +89,11 @@ message CreateChannelRequest {
 
 message ChannelRequest {
   string channel_id = 1;
+  // Кто спрашивает. Доступ к каналу определяется участием, а не ролью:
+  // права в auth-service отвечают, может ли человек пользоваться чатом
+  // вообще, а к какому каналу — только список участников (§8.1).
+  // Пусто — вызов от другого сервиса, доступ проверен на своём уровне.
+  string actor_employee_id = 2;
 }
 
 message UserRequest {
@@ -115,6 +120,7 @@ message HistoryRequest {
   int64 before_seq = 2;  // курсорная пагинация по seq, не по offset
   int32 limit = 3;
   string thread_root_id = 4;
+  string actor_employee_id = 5;
 }
 
 message SendMessageRequest {

@@ -12,6 +12,7 @@ import {
 import { status } from '@grpc/grpc-js';
 import type { Server, Socket } from 'socket.io';
 import { AuthClient } from '../clients/auth.client';
+import { ChatClient } from '../clients/chat.client';
 import { TaskClient } from '../clients/task.client';
 import { TokenResolver } from '../auth/token-resolver';
 import type { AuthenticatedUser } from '../auth/auth.guard';
@@ -73,6 +74,7 @@ export class RealtimeGateway
     private readonly tokens: TokenResolver,
     private readonly auth: AuthClient,
     private readonly tasks: TaskClient,
+    private readonly chat: ChatClient,
     private readonly presence: PresenceService,
     private readonly bus: EphemeralBus,
   ) {}
@@ -346,16 +348,12 @@ export class RealtimeGateway
       return { allowed: false, reason: 'у учётной записи нет карточки сотрудника' };
     }
 
-    if (rule.authority === 'chat') {
-      // Состав канала ведёт chat-service, которого ещё нет. Пустить в
-      // комнату «пока просто так» нельзя: подписка на чужой канал не
-      // отзывается до разрыва соединения, а появление сервиса молча
-      // превратило бы её в утечку переписки.
-      return { allowed: false, reason: 'каналы чата ещё не реализованы' };
-    }
-
     try {
-      await this.tasks.getMembers(rule.id, user.employeeId);
+      // Тот же вызов, которым пользуется HTTP-обработчик канала: и там, и
+      // здесь на вопрос об участии отвечает сервис-владелец. Разойтись эти
+      // проверки не могут, потому что она одна.
+      if (rule.authority === 'chat') await this.chat.getChannel(rule.id, user.employeeId);
+      else await this.tasks.getMembers(rule.id, user.employeeId);
       return { allowed: true };
     } catch (error) {
       return { allowed: false, reason: denialReason(error) };
