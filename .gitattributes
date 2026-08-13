@@ -1,0 +1,58 @@
+# ============================================================================
+# Переводы строк.
+#
+# Git для Windows по умолчанию включает core.autocrlf=true и при клоне
+# подменяет LF на CRLF во всех текстовых файлах. Внутри Windows это
+# незаметно, но проект собирается и запускается в Linux — в WSL и в
+# контейнерах, — и там символ \r ломает всё, что читается построчно:
+#
+#   scripts/setup.sh   →  «/usr/bin/env: bash\r: No such file or directory»
+#   .env               →  пароль с \r на конце, PostgreSQL отвергает вход
+#   Dockerfile         →  «/bin/sh: \r: not found» при сборке
+#
+# Ошибки при этом выглядят бессмысленно: пароль на экране правильный,
+# а сервис говорит, что он неверен. Поэтому перевод строки фиксируется
+# здесь, а не оставляется на усмотрение настроек машины.
+# ============================================================================
+
+# Умолчание: определять текстовые файлы автоматически, в рабочий каталог
+# и в репозиторий писать LF.
+* text=auto eol=lf
+
+# ── Файлы, для которых LF обязателен ────────────────────────────────────────
+# Их читает Linux, даже когда правят их в Windows.
+*.sh            text eol=lf
+*.bash          text eol=lf
+Dockerfile      text eol=lf
+*.Dockerfile    text eol=lf
+.env*           text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.conf          text eol=lf
+*.template      text eol=lf
+*.proto         text eol=lf
+*.prisma        text eol=lf
+*.ts            text eol=lf
+*.vue           text eol=lf
+*.js            text eol=lf
+*.mjs           text eol=lf
+*.json          text eol=lf
+*.md            text eol=lf
+*.css           text eol=lf
+
+# ── Двоичное: не трогать ────────────────────────────────────────────────────
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.webp          binary
+*.ico           binary
+*.woff          binary
+*.woff2         binary
+*.pdf           binary
+*.tar.gz        binary
+
+# ── Вывод сравнений ─────────────────────────────────────────────────────────
+# Сгенерированное и заблокированное не показывать в diff по умолчанию:
+# они длинные и читать их построчно всё равно никто не станет.
+package-lock.json   linguist-generated=true -diff

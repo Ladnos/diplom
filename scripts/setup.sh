@@ -1,4 +1,3 @@
-
 #!/usr/bin/env bash
 # ============================================================================
 # Первый запуск одной командой.
@@ -71,15 +70,71 @@ note()  { echo "  ${DIM}$1${RESET_C}"; }
 # ── 0. Проверка окружения ───────────────────────────────────────────────────
 step "Проверяю окружение"
 
-command -v docker >/dev/null || fail "docker не найден"
+# WSL определяется по отметке Microsoft в версии ядра — так делает и сам
+# дистрибутив. Переменная WSL_DISTRO_NAME есть не всегда: под sudo и в
+# службах окружение обрезается.
+IS_WSL=false
+if grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then
+  IS_WSL=true
+  ok "WSL: $(grep -oiE 'microsoft[^ ]*' /proc/version | head -1)"
+fi
+
+if ! command -v docker >/dev/null; then
+  if $IS_WSL; then
+    fail "docker не найден. В Docker Desktop включите Settings → Resources → WSL Integration для этого дистрибутива, либо поставьте docker внутрь WSL"
+  fi
+  fail "docker не найден"
+fi
+
 docker compose version >/dev/null 2>&1 || fail "нужен docker compose v2 (плагин docker-compose-plugin)"
-docker info >/dev/null 2>&1 || fail "демон docker недоступен — запущен ли он и есть ли права у пользователя?"
+
+if ! docker info >/dev/null 2>&1; then
+  if $IS_WSL; then
+    fail "демон docker недоступен — запущен ли Docker Desktop в Windows?"
+  fi
+  fail "демон docker недоступен — запущен ли он и есть ли права у пользователя?"
+fi
 ok "docker $(docker version --format '{{.Server.Version}}')"
 
-# Свободного места нужно порядочно: образы с Prisma и mediasoup крупные
-FREE_GB=$(df -BG --output=avail /var/lib/docker 2>/dev/null | tail -1 | tr -dc '0-9' || echo 0)
-if [ "${FREE_GB:-0}" -gt 0 ] && [ "$FREE_GB" -lt 10 ]; then
-  warn "на диске под docker меньше 10 ГБ — сборка может не поместиться"
+# ── Переводы строк ──────────────────────────────────────────────────────────
+#
+# Git для Windows при клоне подменяет LF на CRLF. В репозитории есть
+# .gitattributes, который это запрещает, но клон мог быть сделан до его
+# появления либо файл правили в блокноте. Симптомы бессмысленные: пароль
+# на экране верный, а сервис отвергает вход, потому что в конце \r.
+#
+# Чиним молча: спрашивать разрешения на удаление невидимого символа,
+# который здесь не нужен никогда, значит требовать решения там, где
+# правильный ответ один.
+if grep -qlU $'\r' scripts/*.sh 2>/dev/null; then
+  warn "в скриптах найдены windows-переводы строк — исправляю"
+  find scripts -name '*.sh' -exec sed -i 's/\r$//' {} +
+  ok "переводы строк приведены к LF"
+fi
+
+# Свободного места нужно порядочно: образы с Prisma и mediasoup крупные.
+# У Docker Desktop образы лежат в виртуальном диске WSL, и /var/lib/docker
+# в дистрибутиве не существует — тогда смотрим на корень.
+DOCKER_ROOT=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /)
+[ -d "$DOCKER_ROOT" ] || DOCKER_ROOT=/
+FREE_GB=$(df -BG --output=avail "$DOCKER_ROOT" 2>/dev/null | tail -1 | tr -dc '0-9')
+if [ -n "${FREE_GB:-}" ] && [ "$FREE_GB" -lt 10 ]; then
+  warn "свободно ${FREE_GB} ГБ — образы могут не поместиться, нужно около 10"
+fi
+
+# ── Расположение репозитория ────────────────────────────────────────────────
+#
+# Каталог под /mnt/ — это диск Windows, подключённый через 9p. Он в разы
+# медленнее родной файловой системы WSL, а inotify на нём не работает
+# вовсе, поэтому пересборка при разработке интерфейса не срабатывает.
+# Сборка отсюда возможна, но занимает заметно дольше.
+if $IS_WSL && [[ "$ROOT" == /mnt/* ]]; then
+  warn "репозиторий лежит на диске Windows ($ROOT)"
+  note "сборка будет в разы медленнее, а слежение за файлами не сработает"
+  note "перенесите проект в файловую систему WSL, например в ~/diplom"
+  echo
+  read -r -p "  Продолжить отсюда? [y/N] " answer
+  [[ "$answer" =~ ^[Yy] ]] || fail "отменено"
 fi
 
 # ── 1. Настройки ────────────────────────────────────────────────────────────
@@ -110,6 +165,13 @@ SECRETS=(
 
 if [ -f .env ]; then
   ok ".env уже есть — оставляю как есть"
+
+  # .env мог быть отредактирован в Windows. Символ \r попал бы в пароль и
+  # дал бы отказ входа с совершенно верным паролем на экране.
+  if grep -qU $'\r' .env 2>/dev/null; then
+    sed -i 's/\r$//' .env
+    ok "из .env убраны windows-переводы строк"
+  fi
 
   # Проверяем, что обязательные переменные заданы и не остались примерами
   MISSING=()
@@ -143,6 +205,7 @@ if [ -f .env ]; then
 else
   [ -f .env.example ] || fail ".env.example не найден — вы в корне репозитория?"
   cp .env.example .env
+  sed -i 's/\r$//' .env
 
   for key in "${SECRETS[@]}"; do
     secret=$(random_secret)
@@ -278,6 +341,20 @@ echo "${BOLD}══════════════════════�
 echo "  ${BOLD}Приложение:${RESET_C}  http://localhost:${PORT}"
 echo "${BOLD}═══════════════════════════════════════════════════════════${RESET_C}"
 echo
+
+# Из WSL браузер живёт в Windows. Порт туда пробрасывает сам WSL2, так что
+# адрес тот же — но открыть его отсюда просто так нельзя, нужен вызов
+# windows-приложения.
+if $IS_WSL; then
+  note "адрес открывается в браузере Windows — порт пробрасывается автоматически"
+  if command -v explorer.exe >/dev/null 2>&1; then
+    read -r -p "  Открыть браузер? [Y/n] " answer
+    # explorer.exe возвращает ненулевой код даже при успехе — не считаем
+    # это ошибкой и не даём set -e прервать скрипт на последнем шаге
+    [[ "$answer" =~ ^[Nn] ]] || explorer.exe "http://localhost:${PORT}" || true
+  fi
+  echo
+fi
 
 # Пароль администратора печатается в журнал ровно один раз — вылавливаем
 # его здесь, чтобы человеку не пришлось искать самому.
