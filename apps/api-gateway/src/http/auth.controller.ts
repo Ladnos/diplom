@@ -78,6 +78,12 @@ export class AuthController {
     // интерфейс покажет меньше, но пользователь останется в системе.
     const employee = await this.hr.getEmployee(user.employeeId).catch(() => null);
 
+    // Название отдела — второй запрос, но только когда отдел есть, и с
+    // тем же правилом: не удалось получить — покажем без названия.
+    const department = employee?.department_id
+      ? await this.hr.getDepartment(employee.department_id).catch(() => null)
+      : null;
+
     return {
       userId: user.userId,
       roles: user.roles,
@@ -88,6 +94,7 @@ export class AuthController {
             fullName: employee.full_name,
             position: employee.position || null,
             departmentId: employee.department_id || null,
+            departmentName: department?.name ?? null,
             managerId: employee.manager_id || null,
             avatarFileId: employee.avatar_file_id || null,
             active: employee.active,

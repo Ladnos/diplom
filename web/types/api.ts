@@ -185,6 +185,7 @@ export interface EmployeeRow {
   fullName: string;
   position: string | null;
   departmentId: string | null;
+  departmentName?: string | null;
   managerId: string | null;
   active: boolean;
   employment: {

@@ -68,16 +68,105 @@ interface StaffGrpc {
   }): Observable<EmployeeDto>;
 }
 
-/** Клиент к модулю staff сервиса hr-service (пакет hr, сервис StaffService). */
+export interface DepartmentDto {
+  department_id: string;
+  name: string;
+  parent_id: string;
+  employee_count: number;
+  created_at: string | number;
+}
+
+interface OrgGrpc {
+  ListDepartments(data: { query?: string }): Observable<{ departments: DepartmentDto[] }>;
+  GetDepartment(data: { department_id: string }): Observable<DepartmentDto>;
+  CreateDepartment(data: { name: string; parent_id?: string }): Observable<DepartmentDto>;
+  UpdateDepartment(data: {
+    department_id: string;
+    name?: string;
+    parent_id?: string;
+    detach_parent?: boolean;
+  }): Observable<DepartmentDto>;
+  DeleteDepartment(data: { department_id: string }): Observable<Record<string, never>>;
+  AssignEmployees(data: {
+    department_id: string;
+    employee_ids: string[];
+  }): Observable<{ value: number }>;
+}
+
+/**
+ * Клиент к hr-service: модуль staff (StaffService) и справочник
+ * подразделений (OrgService). Оба сервиса объявлены в одном пакете hr и
+ * живут в одном контейнере — клиент здесь один, соединение общее.
+ */
 @Injectable()
 export class HrClient implements OnModuleInit {
   private staff!: StaffGrpc;
+  private org!: OrgGrpc;
 
   constructor(@Inject(grpcClientToken(SERVICES.HR)) private readonly client: ClientGrpc) {}
 
   onModuleInit(): void {
     this.staff = this.client.getService<StaffGrpc>('StaffService');
+    this.org = this.client.getService<OrgGrpc>('OrgService');
   }
+
+  // ── Подразделения ────────────────────────────────────────────────────
+
+  listDepartments(query?: string) {
+    return firstValueFrom(
+      this.org.ListDepartments({ query: query ?? '' }).pipe(timeout(DEADLINES_MS.DEFAULT)),
+    );
+  }
+
+  getDepartment(departmentId: string) {
+    return firstValueFrom(
+      this.org.GetDepartment({ department_id: departmentId }).pipe(timeout(DEADLINES_MS.DEFAULT)),
+    );
+  }
+
+  createDepartment(input: { name: string; parentId?: string }) {
+    return firstValueFrom(
+      this.org
+        .CreateDepartment({ name: input.name, parent_id: input.parentId ?? '' })
+        .pipe(timeout(DEADLINES_MS.DEFAULT)),
+    );
+  }
+
+  updateDepartment(input: {
+    departmentId: string;
+    name?: string;
+    parentId?: string;
+    detachParent?: boolean;
+  }) {
+    return firstValueFrom(
+      this.org
+        .UpdateDepartment({
+          department_id: input.departmentId,
+          name: input.name ?? '',
+          parent_id: input.parentId ?? '',
+          detach_parent: input.detachParent ?? false,
+        })
+        .pipe(timeout(DEADLINES_MS.DEFAULT)),
+    );
+  }
+
+  deleteDepartment(departmentId: string) {
+    return firstValueFrom(
+      this.org
+        .DeleteDepartment({ department_id: departmentId })
+        .pipe(timeout(DEADLINES_MS.DEFAULT)),
+    );
+  }
+
+  assignEmployees(departmentId: string, employeeIds: string[]) {
+    return firstValueFrom(
+      this.org
+        .AssignEmployees({ department_id: departmentId, employee_ids: employeeIds })
+        .pipe(timeout(DEADLINES_MS.DEFAULT)),
+    );
+  }
+
+  // ── Сотрудники ───────────────────────────────────────────────────────
 
   getEmployee(employeeId: string) {
     return firstValueFrom(

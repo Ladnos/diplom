@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { StaffService } from './staff.service';
+import { OrgService } from './org.service';
 import { StaffGrpcController } from './staff.grpc.controller';
+import { OrgGrpcController } from './org.grpc.controller';
 import { AuthEventsController } from './auth-events.controller';
 
 /**
@@ -13,8 +15,8 @@ import { AuthEventsController } from './auth-events.controller';
  * контейнер.
  */
 @Module({
-  controllers: [StaffGrpcController, AuthEventsController],
-  providers: [StaffService],
-  exports: [StaffService],
+  controllers: [StaffGrpcController, OrgGrpcController, AuthEventsController],
+  providers: [StaffService, OrgService],
+  exports: [StaffService, OrgService],
 })
 export class StaffModule {}

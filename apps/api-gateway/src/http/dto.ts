@@ -56,6 +56,43 @@ export class RefreshDto {
   refreshToken!: string;
 }
 
+export class CreateDepartmentDto {
+  @IsString()
+  @Length(2, 200)
+  name!: string;
+
+  @IsOptional()
+  @IsUUID()
+  parentId?: string;
+}
+
+export class UpdateDepartmentDto {
+  @IsOptional()
+  @IsString()
+  @Length(2, 200)
+  name?: string;
+
+  @IsOptional()
+  @IsUUID()
+  parentId?: string;
+
+  /**
+   * Поднять в корень. Отдельный признак, потому что пустая строка в
+   * parentId значит «не менять»: proto3 не отличает её от отсутствия
+   * значения, и «убрать родителя» иначе не выразить.
+   */
+  @IsOptional()
+  @IsBoolean()
+  detachParent?: boolean;
+}
+
+export class AssignEmployeesDto {
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsUUID('4', { each: true })
+  employeeIds!: string[];
+}
+
 export class UpdateEmployeeDto {
   @IsOptional()
   @IsString()

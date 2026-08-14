@@ -29,6 +29,7 @@ export class EmployeesController {
     @Query('departmentId') departmentId?: string,
     @Query('search') search?: string,
     @Query('limit') limit?: string,
+    @Query('relation') relation?: string,
   ) {
     if (!user.employeeId && scope !== 'GLOBAL') {
       return { employees: [], scope, note: 'профиль сотрудника ещё не создан' };
@@ -39,7 +40,22 @@ export class EmployeesController {
     const take = Number.isFinite(parsed) && parsed > 0 ? parsed : 50;
     let employees: EmployeeDto[] = [];
 
-    if (scope === 'GLOBAL') {
+    /**
+     * Явный запрос подчинённых.
+     *
+     * Область действия возвращается самая широкая из имеющихся, а
+     * DEPARTMENT шире, чем SUBORDINATE, — и у руководителя, у которого
+     * есть обе, список подчинённых иначе недостижим: выборка всегда
+     * сводилась бы к его отделу. Но подчинённый не обязан быть в том же
+     * отделе — как раз его туда и переводят.
+     *
+     * Ограничение не ослабляется: выборку строит hr-service от
+     * employeeId из токена, и никого, кроме собственных подчинённых,
+     * вернуть не может. У сотрудника без подчинённых ответ пуст.
+     */
+    if (relation === 'subordinates') {
+      employees = (await this.hr.getSubordinates(user.employeeId!, -1)).employees;
+    } else if (scope === 'GLOBAL') {
       // Отдел здесь — необязательный фильтр, а не обязательный ключ:
       // кадровику список нужен целиком, в том числе чтобы назначить
       // отдел тому, у кого его ещё нет.
@@ -64,7 +80,7 @@ export class EmployeesController {
     // Область SUBORDINATE и вырожденные случаи выше приходят без поиска:
     // выборка ограничена подчинёнными и заведомо мала, поэтому дешевле
     // отфильтровать здесь, чем заводить отдельный вызов.
-    if (query && scope !== 'GLOBAL' && scope !== 'DEPARTMENT') {
+    if (query && (relation === 'subordinates' || (scope !== 'GLOBAL' && scope !== 'DEPARTMENT'))) {
       const needle = query.toLowerCase();
       employees = employees.filter(
         (employee) =>
@@ -73,13 +89,40 @@ export class EmployeesController {
       );
     }
 
-    return { employees: employees.map(toPublicEmployee), scope };
+    return { employees: await this.withDepartments(employees), scope };
+  }
+
+  /**
+   * Подстановка названий подразделений.
+   *
+   * Справочник берётся целиком одним вызовом, а не по идентификатору на
+   * каждого сотрудника: отделов в компании десятки, а строк в списке —
+   * сотни, и запрос на строку превратил бы открытие списка в N+1. Отказ
+   * справочника не ломает выдачу — останется идентификатор без названия.
+   */
+  private async withDepartments(employees: EmployeeDto[]) {
+    const rows = employees.map(toPublicEmployee);
+    if (!rows.some((row) => row.departmentId)) return rows;
+
+    const names = await this.hr
+      .listDepartments()
+      .then(
+        (result) =>
+          new Map(result.departments.map((item) => [item.department_id, item.name])),
+      )
+      .catch(() => new Map<string, string>());
+
+    return rows.map((row) => ({
+      ...row,
+      departmentName: row.departmentId ? (names.get(row.departmentId) ?? null) : null,
+    }));
   }
 
   @Get(':id')
   @RequirePermission({ resource: 'employee', action: 'read', ownerFrom: { param: 'id' } })
   async getOne(@Param('id', ParseUUIDPipe) id: string) {
-    return toPublicEmployee(await this.hr.getEmployee(id));
+    const [employee] = await this.withDepartments([await this.hr.getEmployee(id)]);
+    return employee;
   }
 
   /**

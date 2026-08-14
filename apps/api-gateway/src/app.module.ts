@@ -26,6 +26,7 @@ import { EphemeralBus } from './realtime/ephemeral.bus';
 import { GrpcExceptionFilter } from './http/grpc-exception.filter';
 import { AuthController } from './http/auth.controller';
 import { EmployeesController } from './http/employees.controller';
+import { DepartmentsController } from './http/departments.controller';
 import { AdminController } from './http/admin.controller';
 import { ScheduleController } from './http/schedule.controller';
 import { TimesheetController } from './http/timesheet.controller';
@@ -72,6 +73,7 @@ import { ReportsController } from './http/reports.controller';
   controllers: [
     AuthController,
     EmployeesController,
+    DepartmentsController,
     AdminController,
     ScheduleController,
     TimesheetController,

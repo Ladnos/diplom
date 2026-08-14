@@ -12,6 +12,7 @@ export interface Employee {
   fullName: string;
   position: string | null;
   departmentId: string | null;
+  departmentName: string | null;
   managerId: string | null;
   avatarFileId: string | null;
   active: boolean;

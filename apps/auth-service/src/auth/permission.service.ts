@@ -127,6 +127,14 @@ export class PermissionService {
         return this.isManagerOf(actorEmployeeId, ownerEmployeeId);
 
       case 'DEPARTMENT': {
+        // Человек входит в собственную область видимости всегда, в том
+        // числе пока отдела у него нет. Без этой оговорки только что
+        // заведённый сотрудник не мог прочитать даже свою карточку:
+        // сравнение departmentId с самим собой давало null = null,
+        // то есть ложь. Область SUBORDINATE, наоборот, себя не включает
+        // намеренно — иначе руководитель утверждал бы свои же заявки.
+        if (actorEmployeeId === ownerEmployeeId) return true;
+
         const [actor, owner] = await Promise.all([
           this.prisma.employeeRef.findUnique({
             where: { employeeId: actorEmployeeId },

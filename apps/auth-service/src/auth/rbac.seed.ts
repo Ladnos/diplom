@@ -28,6 +28,10 @@ const ROLES: { code: string; name: string; grants: Grant[] }[] = [
       // Коллег по отделу видно, чтобы работали доски, чат и упоминания
       { resource: 'employee', action: 'read', scope: 'DEPARTMENT' },
       { resource: 'employee', action: 'write', scope: 'SELF' },
+      // Справочник подразделений виден всем: это не сведения о людях, а
+      // названия, без которых карточка сотрудника показывала бы
+      // идентификатор вместо отдела.
+      { resource: 'department', action: 'read', scope: 'GLOBAL' },
       { resource: 'shift', action: 'read', scope: 'SELF' },
       { resource: 'absence', action: 'read', scope: 'SELF' },
       { resource: 'timesheet', action: 'read', scope: 'SELF' },
@@ -72,6 +76,13 @@ const ROLES: { code: string; name: string; grants: Grant[] }[] = [
       { resource: 'request', action: 'read', scope: 'SUBORDINATE' },
       { resource: 'report', action: 'read', scope: 'SUBORDINATE' },
       { resource: 'card', action: 'write', scope: 'SUBORDINATE' },
+      // Состав СВОЕГО подразделения. Область DEPARTMENT здесь означает
+      // именно это: заводить и переименовывать отделы руководитель не
+      // может — это кадровая операция, — но переводит к себе людей,
+      // которыми и так руководит. Ограничение подчинёнными существенно:
+      // без него руководитель втягивал бы в свой отдел кого угодно и
+      // получал бы на них права по области DEPARTMENT.
+      { resource: 'department', action: 'write', scope: 'DEPARTMENT' },
     ],
   },
   {
@@ -80,6 +91,9 @@ const ROLES: { code: string; name: string; grants: Grant[] }[] = [
     grants: [
       { resource: 'employee', action: 'read', scope: 'GLOBAL' },
       { resource: 'employee', action: 'write', scope: 'GLOBAL' },
+      // Заводить, переименовывать и расформировывать подразделения —
+      // кадровая операция: от отдела зависит область видимости DEPARTMENT.
+      { resource: 'department', action: 'write', scope: 'GLOBAL' },
       { resource: 'employment', action: 'write', scope: 'GLOBAL' },
       { resource: 'shift', action: 'write', scope: 'GLOBAL' },
       { resource: 'absence', action: 'write', scope: 'GLOBAL' },

@@ -22,6 +22,7 @@ interface Profile {
   fullName: string;
   position: string | null;
   departmentId: string | null;
+  departmentName: string | null;
   managerId: string | null;
   active: boolean;
   hiredAt: string | null;
@@ -162,7 +163,9 @@ async function save() {
 
           <div>
             <dt class="text-muted-foreground text-xs">Отдел</dt>
-            <dd class="text-sm">{{ profile.departmentId ?? 'не указан' }}</dd>
+            <dd class="text-sm">
+              {{ profile.departmentName ?? (profile.departmentId ? 'указан' : 'не указан') }}
+            </dd>
           </div>
 
           <div>

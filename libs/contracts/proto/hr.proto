@@ -119,6 +119,72 @@ service StaffService {
   rpc DeactivateEmployee(DeactivateCmd) returns (Employee);
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Модуль org — справочник подразделений
+//
+// Отдельный сервис, а не пара методов в StaffService: отдел — самостоятельный
+// объект со своим жизненным циклом и своим правом доступа. Право
+// «редактировать сотрудника» и право «заводить подразделения» принадлежат
+// разным людям — первое линейному руководителю, второе кадровой службе.
+// ────────────────────────────────────────────────────────────────────────────
+
+service OrgService {
+  rpc ListDepartments(ListDepartmentsRequest) returns (DepartmentList);
+  rpc GetDepartment(DepartmentId) returns (Department);
+  rpc CreateDepartment(CreateDepartmentCmd) returns (Department);
+  rpc UpdateDepartment(UpdateDepartmentCmd) returns (Department);
+  // Удаление отдела не переносит его людей: это решение принимает человек,
+  // а не система. Непустое подразделение удалить нельзя.
+  rpc DeleteDepartment(DepartmentId) returns (common.Empty);
+  // Перевод сразу нескольких сотрудников. Отдельная команда, а не цикл из
+  // UpdateEmployee: перевод отдела целиком должен быть одной транзакцией,
+  // иначе половина людей останется в старом при первой же ошибке.
+  rpc AssignEmployees(AssignEmployeesCmd) returns (common.Counter);
+}
+
+message Department {
+  string department_id = 1;
+  string name = 2;
+  string parent_id = 3;
+  // Сколько человек числится — для списка подразделений. Считается
+  // запросом, а не хранится: денормализованный счётчик разъезжается с
+  // действительностью при каждом переводе мимо этой команды.
+  int32 employee_count = 4;
+  int64 created_at = 5;
+}
+
+message DepartmentList {
+  repeated Department departments = 1;
+}
+
+message DepartmentId {
+  string department_id = 1;
+}
+
+message ListDepartmentsRequest {
+  // Подстрока названия. Пусто — весь справочник.
+  string query = 1;
+}
+
+message CreateDepartmentCmd {
+  string name = 1;
+  string parent_id = 2;
+}
+
+message UpdateDepartmentCmd {
+  string department_id = 1;
+  string name = 2;
+  string parent_id = 3;
+  // Отличает «не менять родителя» от «поднять в корень»: proto3 не
+  // различает пустую строку и отсутствие значения.
+  bool detach_parent = 4;
+}
+
+message AssignEmployeesCmd {
+  string department_id = 1;
+  repeated string employee_ids = 2;
+}
+
 message EmployeeId {
   string employee_id = 1;
 }

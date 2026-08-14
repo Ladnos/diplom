@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { Users } from 'lucide-vue-next';
 import { useApi } from '~/composables/useApi';
 import { EMPLOYMENT_TYPES, PAYMENT_FORMS, TIME_POLICIES } from '~/lib/domain';
@@ -12,12 +12,27 @@ const loading = ref(true);
 const employees = ref<EmployeeRow[]>([]);
 const search = ref('');
 const note = ref('');
+const departments = ref<{ departmentId: string; name: string }[]>([]);
 
 const editOpen = ref(false);
 const active = ref<EmployeeRow | null>(null);
 const form = ref({ position: '', departmentId: '', managerId: '' });
 
-onMounted(load);
+onMounted(async () => {
+  await Promise.all([load(), loadDepartments()]);
+});
+
+async function loadDepartments() {
+  const result = await api
+    .get<{ departments: { departmentId: string; name: string }[] }>('/api/departments')
+    .catch(() => ({ departments: [] }));
+  departments.value = result.departments;
+}
+
+const departmentOptions = computed(() => [
+  { value: '', label: 'Не указан' },
+  ...departments.value.map((item) => ({ value: item.departmentId, label: item.name })),
+]);
 
 /**
  * Поиск идёт на сервере, а не по загруженному списку: выдача ограничена
@@ -101,6 +116,7 @@ async function save() {
         :columns="[
           { key: 'fullName', label: 'Сотрудник' },
           { key: 'position', label: 'Должность' },
+          { key: 'department', label: 'Отдел' },
           { key: 'employment', label: 'Тип найма' },
           { key: 'policy', label: 'Учёт времени' },
           { key: 'actions', label: '', width: '1%' },
@@ -118,6 +134,12 @@ async function save() {
 
         <template #position="{ row }">
           <span class="text-muted-foreground text-sm">{{ (row as EmployeeRow).position || '—' }}</span>
+        </template>
+
+        <template #department="{ row }">
+          <span class="text-muted-foreground text-sm">
+            {{ (row as EmployeeRow).departmentName || '—' }}
+          </span>
         </template>
 
         <template #employment="{ row }">
@@ -181,9 +203,13 @@ async function save() {
 
         <div class="space-y-1.5">
           <label class="text-sm font-medium">Отдел</label>
-          <UiInput v-model="form.departmentId" placeholder="Идентификатор отдела" />
+          <UiSelect
+            v-model="form.departmentId"
+            :options="departmentOptions"
+            placeholder="Не указан"
+          />
           <p class="text-muted-foreground text-xs">
-            Отделы заводит кадровая служба — здесь указывается готовый идентификатор
+            От отдела зависит, кто видит сотрудника: коллеги по отделу видны друг другу
           </p>
         </div>
 

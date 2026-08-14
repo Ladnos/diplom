@@ -28,6 +28,14 @@ const props = withDefaults(
     placeholder?: string;
     /** Кого не предлагать: себя, уже добавленных. */
     exclude?: string[];
+    /**
+     * Искать только среди подчинённых.
+     *
+     * Нужно там, где выбор ограничен подчинением, а не отделом: перевод
+     * в свой отдел. Без этого руководитель искал бы по собственному
+     * отделу и не нашёл бы того, кого туда переводит.
+     */
+    relation?: 'subordinates';
     disabled?: boolean;
     class?: string;
   }>(),
@@ -109,6 +117,7 @@ async function search() {
   try {
     const result = await api.get<{ employees: PickerEmployee[]; note?: string }>('/api/employees', {
       search: query.value.trim() || undefined,
+      relation: props.relation,
     });
     found.value = result.employees ?? [];
     for (const employee of found.value) known.value.set(employee.employeeId, employee);

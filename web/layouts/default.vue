@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import {
   BarChart3,
   Bell,
+  Building2,
   CalendarDays,
   Files,
   FileCheck2,
@@ -48,6 +49,14 @@ const nav = computed(() =>
     { to: '/calls', label: 'Звонки', icon: Video, show: true },
     { to: '/timesheet', label: 'Табель', icon: CalendarDays, show: true },
     { to: '/employees', label: 'Сотрудники', icon: Users, show: auth.isManager || auth.isHr },
+    // Руководителю нужен доступ и без кадровых прав: состав своего
+    // отдела он ведёт сам
+    {
+      to: '/departments',
+      label: 'Подразделения',
+      icon: Building2,
+      show: auth.isManager || auth.isHr,
+    },
     { to: '/files', label: 'Файлы', icon: Files, show: true },
     { to: '/reports', label: 'Отчёты', icon: BarChart3, show: auth.isManager || auth.isHr },
     { to: '/admin', label: 'Администрирование', icon: Shield, show: auth.isAdmin },
